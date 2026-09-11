@@ -1,0 +1,20 @@
+# Segredos e ambiente
+.env
+*.local
+
+# Python / Django
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+db.sqlite3
+
+# Node
+node_modules/
+dist/
+
+# IDE / SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
