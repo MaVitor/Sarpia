@@ -1,3 +1,4 @@
+import re
 from unittest.mock import patch
 
 import fitz
@@ -13,6 +14,7 @@ from api.schemas import (
 from api.services import pdf
 from api.services import gemini
 from api.services.gemini import GeminiErro
+from api.services import prompts
 
 
 class SaudeTests(SimpleTestCase):
@@ -188,3 +190,31 @@ class GeminiViewTests(SimpleTestCase):
         self.assertIn("codigo_provedor=503", log)
         self.assertNotIn("segredo", log)
         self.assertNotIn("prompt privado", log)
+
+
+class PromptTests(SimpleTestCase):
+    def test_prompt_de_avaliacao_define_criterios_de_fundamentacao(self):
+        prompt = prompts.prompt_avaliacao(
+            "[Slide 1]\nO viés pode surgir na coleta e no treinamento.",
+            "O viés não surge apenas depois da implantação.",
+        )
+        prompt_lower = re.sub(r"\s+", " ", prompt.lower())
+        self.assertIn("paráfrases fiéis", prompt)
+        self.assertIn("inferências diretamente decorrentes", prompt)
+        self.assertIn("Compare significados", prompt)
+        self.assertIn("números, datas, estudos", prompt)
+        self.assertIn("contradizer o material", prompt)
+        self.assertIn("não equivale a", prompt)
+        self.assertIn("não use conhecimento externo", prompt_lower)
+        self.assertIn("auditorias eliminam 95%", prompt_lower)
+        self.assertIn("surge exclusivamente depois", prompt_lower)
+        self.assertIn("elimina todos os riscos", prompt_lower)
+
+    def test_prompt_preserva_os_casos_de_regressao(self):
+        prompt = prompts.prompt_avaliacao(
+            "[Slide 1]\nA governança define políticas, processos e controles.",
+            "A governança organiza regras, procedimentos e mecanismos de acompanhamento.",
+        )
+        self.assertNotIn("info_nao_sustentada: toda frase ausente", prompt)
+        self.assertIn('"info_nao_sustentada"', prompt)
+        self.assertIn("não duplique o mesmo apontamento", re.sub(r"\s+", " ", prompt.lower()))
