@@ -19,6 +19,16 @@ def _erro_gemini(exc: gemini.GeminiErro) -> Response:
     return Response({"detail": exc.detail}, status=exc.status)
 
 
+def _calcular_cobertura(resultado: FeedbackResponse) -> int:
+    total = len(resultado.topicos)
+    if not total:
+        return 0
+    cobertos = sum(
+        topico.status in {"coberto", "parcial"} for topico in resultado.topicos
+    )
+    return round(cobertos * 100 / total)
+
+
 class SaudeView(APIView):
     def get(self, request):
         return Response({"status": "ok", "servico": "sarpia-api", "versao": "0.1.0"})
@@ -34,24 +44,24 @@ class MateriaisView(APIView):
                 {"detail": "Envie um arquivo PDF."},
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
-        conteudo = arquivo.read()
-        if len(conteudo) > settings.MAX_PDF_MB * 1024 * 1024:
+        limite_bytes = settings.MAX_PDF_MB * 1024 * 1024
+        if not arquivo.size:
+            return Response({"detail": "O arquivo PDF está vazio."}, status=400)
+        if arquivo.size > limite_bytes:
             return Response(
                 {"detail": f"PDF maior que {settings.MAX_PDF_MB} MB."},
                 status=drf_status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             )
-        paginas, aviso = pdf_service.extrair_texto(conteudo)
-        if len(paginas) > settings.MAX_PAGINAS:
+        try:
+            paginas, aviso = pdf_service.extrair_texto(
+                arquivo.read(), max_paginas=settings.MAX_PAGINAS
+            )
+        except pdf_service.PDFExtracaoErro as exc:
             return Response(
-                {
-                    "detail": (
-                        f"PDF com {len(paginas)} páginas; "
-                        f"o limite do MVP é {settings.MAX_PAGINAS}."
-                    )
-                },
+                {"detail": str(exc)},
                 status=drf_status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
-        if not any(p.texto for p in paginas):
+        if not any(p.texto.strip() for p in paginas):
             return Response(
                 {
                     "detail": (
@@ -98,6 +108,9 @@ class AvaliarView(APIView):
             )
         except gemini.GeminiErro as exc:
             return _erro_gemini(exc)
+        resultado = resultado.model_copy(
+            update={"cobertura_percentual": _calcular_cobertura(resultado)}
+        )
         return Response(resultado.model_dump())
 
 

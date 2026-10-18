@@ -1,192 +1,52 @@
-import {
-  Award,
-  Briefcase,
-  FileText,
-  GraduationCap,
-  PenLine,
-  Presentation,
-  Upload,
-  type LucideIcon,
-} from "lucide-react";
+import { useEffect, useState } from "react";
+import LandingPage from "./components/LandingPage";
+import MaterialPage from "./components/MaterialPage";
+import EssayPage from "./components/EssayPage";
+import FeedbackPage from "./components/FeedbackPage";
+import { SiteFooter, SiteHeader } from "./components/SiteChrome";
+import type { FeedbackResponse, PaginaTexto, Topico } from "./lib/api";
 
-const passos: { icone: LucideIcon; num: string; titulo: string; descricao: string }[] = [
-  {
-    icone: Upload,
-    num: "01",
-    titulo: "Envie seus slides",
-    descricao:
-      "Carregue o PDF da sua apresentação. O Sarpia lê o texto dos slides e extrai os tópicos que você precisa cobrir.",
-  },
-  {
-    icone: FileText,
-    num: "02",
-    titulo: "Escreva o ensaio",
-    descricao:
-      "Escreva como se estivesse apresentando de verdade. Quanto mais próximo da sua fala, melhor a correção.",
-  },
-  {
-    icone: PenLine,
-    num: "03",
-    titulo: "Receba o feedback",
-    descricao:
-      "Veja o que ficou de fora, o que saiu errado, a ordem da apresentação e as perguntas que a banca pode fazer.",
-  },
-];
-
-const publicos: { icone: LucideIcon; titulo: string; descricao: string }[] = [
-  {
-    icone: GraduationCap,
-    titulo: "Defesas de TCC",
-    descricao: "Não deixe nenhum slide importante de fora da sua fala.",
-  },
-  {
-    icone: Briefcase,
-    titulo: "Pitches",
-    descricao: "Treine clareza e ordem sem perder o foco do investidor.",
-  },
-  {
-    icone: Presentation,
-    titulo: "Aulas e seminários",
-    descricao: "Organize o conteúdo e antecipe as perguntas da plateia.",
-  },
-  {
-    icone: Award,
-    titulo: "Concursos",
-    descricao: "Ensaie apresentações orais com base no material exigido.",
-  },
-];
+type Tela = "inicio" | "material" | "ensaio" | "feedback";
 
 export default function App() {
-  return (
-    <div className="shell">
-      <header>
-        <div className="container header-inner">
-          <a className="logo-link" href="/" aria-label="Sarpia — página inicial">
-            <img src="/logo.svg" alt="Sarpia" />
-          </a>
-          <nav>
-            <a href="#como-funciona">Como funciona</a>
-            <span className="tagline-mono">Simulador de Apresentação Revisado por IA</span>
-          </nav>
-        </div>
-      </header>
+  const [tela, setTela] = useState<Tela>("inicio");
+  const [paginas, setPaginas] = useState<PaginaTexto[]>([]);
+  const [nomeMaterial, setNomeMaterial] = useState("");
+  const [aviso, setAviso] = useState<string | null>(null);
+  const [topicos, setTopicos] = useState<Topico[]>([]);
+  const [ensaio, setEnsaio] = useState("");
+  const [feedback, setFeedback] = useState<FeedbackResponse | null>(null);
 
-      <main className="container">
-        <div className="intro-stage">
-          <div className="intro-copy">
-            <p className="eyebrow">Simulador de Apresentação Revisado por IA</p>
-            <h1>Ensaie antes de valer</h1>
-            <p className="lede">
-              Envie seus slides, escreva seu ensaio e receba uma correção na margem: o
-              que ficou de fora, o que saiu errado e o que a banca provavelmente vai
-              perguntar.
-            </p>
-            <div className="cta">
-              <button className="btn" type="button">
-                Começar um ensaio
-              </button>
-            </div>
-          </div>
-
-          <div className="raven-arrival" aria-hidden="true">
-            <div className="raven-float">
-              <img className="raven-figure" src="/corvo.svg" alt="" />
-            </div>
-          </div>
-          <img className="raven-branch" src="/galho.svg" alt="" aria-hidden="true" />
-          </div>
-
-        <section id="como-funciona">
-          <h2>Como funciona</h2>
-          <div className="grid-steps">
-            {passos.map(({ icone: Icone, num, titulo, descricao }) => (
-              <article className="card" key={num}>
-                <div className="card-head">
-                  <Icone className="icon" aria-hidden />
-                  <span className="step-num">{num}</span>
-                </div>
-                <h3>{titulo}</h3>
-                <p className="desc">{descricao}</p>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section id="exemplo">
-          <h2>Exemplo de feedback</h2>
-          <p className="section-sub">
-            Veja como o Sarpia marca o seu ensaio como um professor com caneta vermelha.
-          </p>
-          <div className="grid-example">
-            <div className="card">
-              <p className="mono-label">cobertura do material</p>
-              <p className="big-number">58%</p>
-              <div className="bar">
-                <div style={{ width: "58%" }} />
-              </div>
-              <p className="note">
-                O Sarpia cruza o que você escreveu com os tópicos dos slides e mostra o
-                que ficou de fora.
-              </p>
-            </div>
-            <div className="stack">
-              <article className="card card-sm">
-                <p className="slide-num">slide 04</p>
-                <p className="quote">
-                  <span className="mark-slide">
-                    PUT substitui o recurso inteiro; PATCH atualiza parcialmente.
-                  </span>
-                </p>
-                <p className="said">Você mencionou apenas GET e POST.</p>
-                <p className="correction">
-                  <PenLine aria-hidden />
-                  <span>
-                    Inclua a diferença entre PUT e PATCH — a banca costuma cobrar esse
-                    detalhe.
-                  </span>
-                </p>
-              </article>
-              <article className="card card-sm">
-                <p className="question-text">
-                  Qual a diferença entre PUT e PATCH na prática?
-                </p>
-                <p className="question-hint">dica: idempotência e atualização parcial</p>
-              </article>
-            </div>
-          </div>
-        </section>
-
-        <section id="para-quem">
-          <h2>Para quem</h2>
-          <div className="grid-audiences">
-            {publicos.map(({ icone: Icone, titulo, descricao }) => (
-              <article className="card card-sm audience-card" key={titulo}>
-                <Icone className="icon" aria-hidden />
-                <div>
-                  <h3>{titulo}</h3>
-                  <p>{descricao}</p>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="final-cta">
-          <h2>Pronto para ensaiar?</h2>
-          <p>Nada fica salvo: seu material vive só nesta sessão.</p>
-          <div className="cta">
-            <button className="btn" type="button">
-              Começar agora
-            </button>
-          </div>
-        </section>
-      </main>
-
-      <footer>
-        <div className="container">
-          <p>O Sarpia não substitui professor, orientador ou avaliador humano.</p>
-        </div>
-      </footer>
-    </div>
-  );
+  useEffect(() => {
+    if (tela !== "inicio") {
+      document.querySelector<HTMLElement>(".flow-title")?.focus();
+    }
+  }, [tela]);
+  function iniciar() { setTela("material"); }
+  function materialAtualizado(novasPaginas: PaginaTexto[], nome: string, novoAviso: string | null) {
+    setPaginas(novasPaginas); setNomeMaterial(nome); setAviso(novoAviso); setTopicos([]); setFeedback(null);
+  }
+  function confirmar(descricao: string): boolean { return window.confirm(descricao); }
+  function trocarMaterial() {
+    if (confirmar("Trocar o material e descartar o feedback atual?")) {
+      setPaginas([]); setTopicos([]); setFeedback(null); setEnsaio(""); setTela("material");
+    }
+  }
+  function voltarInicio() {
+    if (confirmar("Voltar ao início e descartar o trabalho desta sessão?")) {
+      setPaginas([]); setTopicos([]); setFeedback(null); setEnsaio(""); setTela("inicio");
+    }
+  }
+  return <>
+    {tela === "inicio" && <LandingPage onStart={iniciar} />}
+    {tela !== "inicio" && <div className={`shell ${tela === "feedback" ? "flow-feedback-shell" : ""}`}><SiteHeader />
+      {tela === "material" && <MaterialPage paginas={paginas} topicos={topicos} onMaterial={materialAtualizado} onTopicos={setTopicos} onContinue={() => setTela("ensaio")} />}
+      {tela === "ensaio" && <EssayPage paginas={paginas} topicos={topicos} ensaio={ensaio} onEnsaio={setEnsaio} onFeedback={(novoFeedback) => { setFeedback(novoFeedback); if (novoFeedback) setTela("feedback"); }} onBack={() => setTela("material")} />}
+      {tela === "feedback" && feedback && <FeedbackPage feedback={feedback} materialNome={nomeMaterial} onReview={() => setTela("ensaio")} onChangeMaterial={trocarMaterial} onHome={voltarInicio} />}
+      <SiteFooter />
+    </div>}
+    {feedback && tela === "ensaio" && <button className="sr-only" type="button" onClick={() => setTela("feedback")}>Ver feedback</button>}
+    {feedback && tela === "ensaio" && <div className="flow-feedback-ready"><button className="btn" type="button" onClick={() => setTela("feedback")}>Ver feedback</button></div>}
+    {nomeMaterial && aviso && tela === "ensaio" && <span className="sr-only">{aviso}</span>}
+  </>;
 }

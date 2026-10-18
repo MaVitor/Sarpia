@@ -1,20 +1,22 @@
-import threading
-from datetime import datetime, time, timedelta
+"""Integração isolada com o SDK do Gemini."""
+
+import logging
+import re
+import time
 from typing import TypeVar
-from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 T = TypeVar("T", bound=BaseModel)
-TZ_PACIFICO = ZoneInfo("America/Los_Angeles")
+logger = logging.getLogger(__name__)
 
 
 class GeminiErro(Exception):
-    """Erro de integração com o Gemini, já com status HTTP e mensagem ao usuário."""
+    """Erro de integração convertido em resposta segura para a API."""
 
     def __init__(self, status: int, detail: str) -> None:
         super().__init__(detail)
@@ -22,98 +24,99 @@ class GeminiErro(Exception):
         self.detail = detail
 
 
-def _proxima_meia_noite_pacifico() -> datetime:
-    """A cota diária (RPD) do free tier zera à meia-noite no horário do Pacífico."""
-    agora = datetime.now(TZ_PACIFICO)
-    amanha = (agora + timedelta(days=1)).date()
-    return datetime.combine(amanha, time.min, tzinfo=TZ_PACIFICO)
+def _chave_configurada() -> str:
+    keys = [key.strip() for key in settings.GEMINI_API_KEYS.split(",") if key.strip()]
+    if not keys:
+        raise GeminiErro(503, "O serviço de análise não está configurado.")
+    return keys[0]
 
 
-class KeyPool:
-    """Rotação round-robin de chaves Gemini com cooldown até o reset diário.
-
-    Atenção: os limites do free tier são por PROJETO do Google Cloud, não por
-    chave. A rotação só aumenta a cota se cada chave vier de um projeto diferente.
-    """
-
-    def __init__(self, keys: list[str]) -> None:
-        self._keys = keys
-        self._cooldown: dict[str, datetime] = {}
-        self._indice = 0
-        self._lock = threading.Lock()
-
-    def adquirir(self) -> str | None:
-        with self._lock:
-            agora = datetime.now(TZ_PACIFICO)
-            for _ in range(len(self._keys)):
-                key = self._keys[self._indice % len(self._keys)]
-                self._indice += 1
-                if self._cooldown.get(key, agora - timedelta(seconds=1)) < agora:
-                    return key
-        return None
-
-    def reportar_limite(self, key: str) -> None:
-        with self._lock:
-            self._cooldown[key] = _proxima_meia_noite_pacifico()
+def _codigo_erro(exc: Exception) -> int | str | None:
+    return getattr(exc, "code", None) or getattr(exc, "status_code", None)
 
 
-_pool: KeyPool | None = None
-_pool_lock = threading.Lock()
+def _codigo_seguro(exc: Exception) -> int | str | None:
+    codigo = _codigo_erro(exc)
+    if isinstance(codigo, int):
+        return codigo
+    if isinstance(codigo, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,32}", codigo):
+        return codigo
+    return None
 
 
-def _lista_keys() -> list[str]:
-    return [k.strip() for k in settings.GEMINI_API_KEYS.split(",") if k.strip()]
-
-
-def _get_pool() -> KeyPool:
-    global _pool
-    with _pool_lock:
-        if _pool is None:
-            keys = _lista_keys()
-            if not keys:
-                raise GeminiErro(
-                    500,
-                    "Nenhuma chave Gemini configurada. Preencha GEMINI_API_KEYS no .env.",
-                )
-            _pool = KeyPool(keys)
-    return _pool
-
-
-def _chamar_gemini(key: str, prompt: str, schema: type[T]) -> T:
-    client = genai.Client(api_key=key)
-    resposta = client.models.generate_content(
-        model=settings.GEMINI_MODEL,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=schema,
-        ),
+def _registrar_falha(exc: Exception, inicio: float) -> None:
+    logger.warning(
+        "Falha na integração Gemini: operacao=%s excecao=%s codigo_provedor=%s duracao_ms=%d",
+        "generate_content",
+        type(exc).__name__,
+        _codigo_seguro(exc),
+        round((time.monotonic() - inicio) * 1000),
     )
-    return schema.model_validate_json(resposta.text)
 
 
-def _eh_limite(exc: Exception) -> bool:
-    codigo = getattr(exc, "code", None) or getattr(exc, "status_code", None)
-    return codigo == 429 or "RESOURCE_EXHAUSTED" in str(exc)
+def _eh_transitorio(exc: Exception) -> bool:
+    codigo = _codigo_erro(exc)
+    return codigo in {408, 429, 500, 502, 503, 504} or "RESOURCE_EXHAUSTED" in str(exc)
+
+
+def _espera_retry(exc: Exception) -> float:
+    valor = getattr(exc, "retry_delay", None) or getattr(exc, "retry_after", None)
+    try:
+        segundos = float(getattr(valor, "seconds", valor))
+    except (TypeError, ValueError):
+        segundos = 1.0
+    return min(max(segundos, 0.1), 2.0)
+
+
+def _chamar_gemini(prompt: str, schema: type[T]) -> T:
+    client = genai.Client(
+        api_key=_chave_configurada(),
+        http_options=types.HttpOptions(timeout=settings.GEMINI_TIMEOUT_MS),
+    )
+    try:
+        resposta = client.models.generate_content(
+            model=settings.GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=schema,
+            ),
+        )
+        texto = getattr(resposta, "text", None)
+        if not texto or not texto.strip():
+            raise GeminiErro(502, "O serviço de análise retornou uma resposta vazia.")
+        try:
+            return schema.model_validate_json(texto)
+        except (ValidationError, ValueError) as exc:
+            raise GeminiErro(
+                502, "O serviço de análise retornou dados em formato inválido."
+            ) from exc
+    finally:
+        client.close()
 
 
 def gerar_estruturado(prompt: str, schema: type[T]) -> T:
-    """Chama o Gemini tentando cada chave disponível até conseguir ou esgotar todas."""
-    pool = _get_pool()
-    tentativas = max(1, len(_lista_keys()))
-    for _ in range(tentativas):
-        key = pool.adquirir()
-        if key is None:
-            break
+    """Executa poucas tentativas para falhas transitórias, sem contornar cotas."""
+    tentativas = min(max(settings.GEMINI_MAX_TENTATIVAS, 1), 3)
+    for tentativa in range(tentativas):
+        inicio = time.monotonic()
         try:
-            return _chamar_gemini(key, prompt, schema)
-        except genai_errors.ClientError as exc:
-            if _eh_limite(exc):
-                pool.reportar_limite(key)
-                continue
-            raise GeminiErro(502, f"Erro na API Gemini: {exc}")
-    raise GeminiErro(
-        503,
-        "Limite diário das chaves atingido. A cota do free tier reinicia à "
-        "meia-noite no horário do Pacífico (por volta das 4h-5h em Brasília).",
-    )
+            return _chamar_gemini(prompt, schema)
+        except GeminiErro as exc:
+            _registrar_falha(exc, inicio)
+            raise
+        except (genai_errors.ClientError, genai_errors.ServerError, TimeoutError) as exc:
+            _registrar_falha(exc, inicio)
+            if not _eh_transitorio(exc) or tentativa == tentativas - 1:
+                raise GeminiErro(
+                    503, "O serviço de análise está temporariamente indisponível."
+                ) from exc
+            time.sleep(_espera_retry(exc))
+        except OSError as exc:
+            _registrar_falha(exc, inicio)
+            if tentativa == tentativas - 1:
+                raise GeminiErro(
+                    503, "O serviço de análise está temporariamente indisponível."
+                ) from exc
+            time.sleep(0.5)
+    raise GeminiErro(503, "O serviço de análise está temporariamente indisponível.")

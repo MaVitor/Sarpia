@@ -1,7 +1,8 @@
-# Segredos e ambiente
+# Configuracoes locais e credenciais
 .env
+.env.*
+!.env.example
 *.local
-
 # Python / Django
 __pycache__/
 *.py[cod]

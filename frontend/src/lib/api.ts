@@ -56,12 +56,35 @@ export interface FeedbackResponse {
 async function tratarErro(resposta: Response): Promise<never> {
   let detalhe = `Erro ${resposta.status}`;
   try {
-    const corpo = await resposta.json();
-    if (corpo?.detail) detalhe = corpo.detail;
+    const corpo: unknown = await resposta.json();
+    if (typeof corpo === "object" && corpo !== null) {
+      const dados = corpo as Record<string, unknown>;
+      if (typeof dados.detail === "string") {
+        detalhe = dados.detail;
+      } else {
+        const mensagens = Object.entries(dados).flatMap(([campo, valor]) =>
+          extrairMensagens(valor, campo)
+        );
+        if (mensagens.length > 0) detalhe = mensagens.join(" ");
+      }
+    }
   } catch {
     /* mantém o detalhe padrão */
   }
   throw new Error(detalhe);
+}
+
+function extrairMensagens(valor: unknown, campo: string): string[] {
+  if (typeof valor === "string") return [`${campo}: ${valor}`];
+  if (Array.isArray(valor)) {
+    return valor.flatMap((item) => extrairMensagens(item, campo));
+  }
+  if (typeof valor === "object" && valor !== null) {
+    return Object.entries(valor).flatMap(([chave, item]) =>
+      extrairMensagens(item, `${campo}.${chave}`)
+    );
+  }
+  return [];
 }
 
 export async function verificarSaude(): Promise<{ status: string }> {
