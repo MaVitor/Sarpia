@@ -54,6 +54,7 @@ class FeedbackResponse(BaseModel):
     resumo_geral: str
     cobertura_percentual: int = Field(ge=0, le=100)
     topicos: list[TopicoAvaliado]
+    topicos_complementares: list[TopicoAvaliado] = Field(default_factory=list)
     erros_conteudo: list[ErroConteudo]
     info_nao_sustentada: list[InfoNaoSustentada]
     ordem_apresentacao: OrdemApresentacao

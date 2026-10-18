@@ -360,6 +360,7 @@ section h2 { text-align: center; font-size: 1.5rem; }
 .status-omitido { background: #f9d6d5; color: #8b2925; }
 .feedback-list blockquote { margin: .6rem 0; border-left: 3px solid var(--highlight); padding-left: .75rem; color: var(--muted-foreground); white-space: pre-wrap; }
 .feedback-list article > p { margin-top: .45rem; }
+.section-note, .coverage-counts { color: var(--muted-foreground); font-size: .85rem; line-height: 1.5; }
 .empty-state { margin-top: .75rem; color: var(--muted-foreground); }
 .feedback-two-col .flow-card { margin-top: 0; line-height: 1.6; }
 .feedback-two-col ul { margin: .75rem 0 0 1.25rem; line-height: 1.7; }

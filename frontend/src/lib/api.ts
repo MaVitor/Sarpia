@@ -46,6 +46,7 @@ export interface FeedbackResponse {
   resumo_geral: string;
   cobertura_percentual: number;
   topicos: TopicoAvaliado[];
+  topicos_complementares?: TopicoAvaliado[];
   erros_conteudo: ErroConteudo[];
   info_nao_sustentada: InfoNaoSustentada[];
   ordem_apresentacao: { avaliacao: string; sugestao: string };
@@ -121,5 +122,6 @@ export async function avaliarEnsaio(
     body: JSON.stringify({ paginas, ensaio }),
   });
   if (!r.ok) await tratarErro(r);
-  return r.json();
+  const dados: FeedbackResponse = await r.json();
+  return { ...dados, topicos_complementares: dados.topicos_complementares ?? [] };
 }

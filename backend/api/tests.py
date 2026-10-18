@@ -15,6 +15,7 @@ from api.services import pdf
 from api.services import gemini
 from api.services.gemini import GeminiErro
 from api.services import prompts
+from api.views import _calcular_cobertura
 
 
 class SaudeTests(SimpleTestCase):
@@ -157,6 +158,54 @@ class GeminiViewTests(SimpleTestCase):
             resposta = self.client.post("/api/avaliar/", self.payload, format="json")
         self.assertEqual(resposta.json()["cobertura_percentual"], 0)
 
+    def test_cobertura_usa_apenas_topicos_principais(self):
+        principais = [
+            TopicoAvaliado(
+                titulo=f"P{i}", slide=1, status="coberto",
+                trecho_material="", trecho_ensaio="", comentario=""
+            )
+            for i in range(10)
+        ]
+        complementares = [
+            TopicoAvaliado(
+                titulo="Crédito", slide=1, status="omitido",
+                trecho_material="", trecho_ensaio="", comentario=""
+            )
+        ]
+        resultado = self._feedback(principais).model_copy(
+            update={"topicos_complementares": complementares}
+        )
+        self.assertEqual(_calcular_cobertura(resultado), 100)
+
+        parcial = principais[:9] + [
+            TopicoAvaliado(
+                titulo="P9", slide=1, status="parcial",
+                trecho_material="", trecho_ensaio="", comentario=""
+            )
+        ]
+        self.assertEqual(
+            _calcular_cobertura(
+                self._feedback(parcial).model_copy(
+                    update={"topicos_complementares": complementares}
+                )
+            ),
+            100,
+        )
+        omitido = principais[:9] + [
+            TopicoAvaliado(
+                titulo="P9", slide=1, status="omitido",
+                trecho_material="", trecho_ensaio="", comentario=""
+            )
+        ]
+        self.assertEqual(_calcular_cobertura(self._feedback(omitido)), 90)
+        self.assertEqual(_calcular_cobertura(self._feedback([])), 0)
+
+    def test_resposta_antiga_sem_complementares_e_aceita(self):
+        dados = self._feedback([]).model_dump()
+        dados.pop("topicos_complementares", None)
+        resultado = FeedbackResponse.model_validate(dados)
+        self.assertEqual(resultado.topicos_complementares, [])
+
     def test_resposta_vazia_ou_invalida_da_ia(self):
         for erro in (
             GeminiErro(502, "O serviço de análise retornou uma resposta vazia."),
@@ -218,3 +267,16 @@ class PromptTests(SimpleTestCase):
         self.assertNotIn("info_nao_sustentada: toda frase ausente", prompt)
         self.assertIn('"info_nao_sustentada"', prompt)
         self.assertIn("não duplique o mesmo apontamento", re.sub(r"\s+", " ", prompt.lower()))
+
+    def test_prompt_separa_principais_e_complementares(self):
+        prompt = prompts.prompt_avaliacao(
+            "[Slide 1]\nTransparência como princípio de governança.\n"
+            "Utilizamos IA para organizar as ideias.",
+            "Transparência orienta a governança.",
+        )
+        self.assertIn("topicos_complementares", prompt)
+        self.assertIn("conceitos e definições", prompt)
+        self.assertIn("créditos de autoria", prompt)
+        self.assertIn("uma página pode ter tópicos principais", prompt.lower())
+        self.assertIn("ferramenta como conteúdo principal", prompt.lower())
+        self.assertIn("priorizar contradições e lacunas principais", prompt.lower())

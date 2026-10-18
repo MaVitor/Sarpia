@@ -28,6 +28,7 @@ export function formatarFeedbackTexto(
   material: FeedbackExportMaterial,
   exportadoEm: Date = new Date()
 ): string {
+  const complementares = feedback.topicos_complementares ?? [];
   const contagens = feedback.topicos.reduce(
     (total, topico) => ({ ...total, [topico.status]: total[topico.status] + 1 }),
     { coberto: 0, parcial: 0, omitido: 0 }
@@ -42,6 +43,16 @@ export function formatarFeedbackTexto(
         `Comentário: ${topico.comentario}`,
       ].join("\n")).join("\n\n")
     : "Nenhum tópico foi retornado pela análise.";
+  const topicosComplementares = complementares.length
+    ? complementares.map((topico, indice) => [
+        `${indice + 1}. ${topico.titulo}`,
+        `Status: ${topico.status}`,
+        `Página: ${topico.slide === 1 && material.nome === "Roteiro" ? "Roteiro" : topico.slide}`,
+        trecho("Evidência do material", topico.trecho_material),
+        trecho("Trecho do ensaio", topico.trecho_ensaio),
+        `Comentário: ${topico.comentario}`,
+      ].join("\n")).join("\n\n")
+    : "Nenhum elemento complementar foi retornado pela análise.";
   const divergencias = feedback.erros_conteudo.length
     ? feedback.erros_conteudo.map((erro, indice) => [
         `${indice + 1}. Página: ${erro.slide}`,
@@ -68,14 +79,21 @@ export function formatarFeedbackTexto(
     "Resumo geral",
     feedback.resumo_geral,
     "",
-    "Cobertura do material",
-    linha("Percentual", `${feedback.cobertura_percentual}%`),
+    "Cobertura dos tópicos principais",
+    feedback.topicos.length
+      ? linha("Percentual", `${feedback.cobertura_percentual}%`)
+      : "Cobertura não calculável: nenhum tópico principal identificado.",
     EXPLICACAO_COBERTURA,
-    `Quantidade de tópicos: ${feedback.topicos.length}`,
+    feedback.topicos.length
+      ? `Quantidade de tópicos principais: ${feedback.topicos.length}`
+      : "Nenhum tópico principal identificado.",
     `Cobertos: ${contagens.coberto} | Parciais: ${contagens.parcial} | Omitidos: ${contagens.omitido}`,
     "",
-    "Tópicos",
+    "Tópicos principais",
     topicos,
+    "",
+    "Elementos complementares",
+    topicosComplementares,
     "",
     "Divergências de conteúdo",
     divergencias,
