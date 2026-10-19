@@ -17,13 +17,25 @@ export interface Topico {
   resumo: string;
 }
 
+export interface TopicoReferencia extends Topico {
+  id: string;
+  categoria: "principal" | "complementar";
+}
+
 export interface TopicosResponse {
-  topicos: Topico[];
+  versao_contrato: string;
+  modo: "pdf" | "roteiro";
+  material_hash: string;
+  topicos: TopicoReferencia[];
+  topicos_complementares: TopicoReferencia[];
+  assinatura: string;
 }
 
 export interface TopicoAvaliado {
+  id?: string | null;
   titulo: string;
   slide: number;
+  categoria?: "principal" | "complementar";
   status: "coberto" | "parcial" | "omitido";
   trecho_material: string;
   trecho_ensaio: string;
@@ -53,6 +65,8 @@ export interface FeedbackResponse {
   perguntas_banca: string[];
   proximo_passo: string;
 }
+
+export interface ReferenciaTopicos extends TopicosResponse {}
 
 async function tratarErro(resposta: Response): Promise<never> {
   let detalhe = `Erro ${resposta.status}`;
@@ -94,19 +108,24 @@ export async function verificarSaude(): Promise<{ status: string }> {
   return r.json();
 }
 
-export async function enviarMaterial(arquivo: File): Promise<MaterialResponse> {
+export async function enviarMaterial(arquivo: File, signal?: AbortSignal): Promise<MaterialResponse> {
   const form = new FormData();
   form.append("arquivo", arquivo);
-  const r = await fetch(`${API_URL}/api/materiais/`, { method: "POST", body: form });
+  const r = await fetch(`${API_URL}/api/materiais/`, { method: "POST", body: form, signal });
   if (!r.ok) await tratarErro(r);
   return r.json();
 }
 
-export async function extrairTopicos(paginas: PaginaTexto[]): Promise<TopicosResponse> {
+export async function extrairTopicos(
+  paginas: PaginaTexto[],
+  modo: "pdf" | "roteiro",
+  signal?: AbortSignal
+): Promise<TopicosResponse> {
   const r = await fetch(`${API_URL}/api/topicos/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ paginas }),
+    body: JSON.stringify({ paginas, modo }),
+    signal,
   });
   if (!r.ok) await tratarErro(r);
   return r.json();
@@ -114,12 +133,16 @@ export async function extrairTopicos(paginas: PaginaTexto[]): Promise<TopicosRes
 
 export async function avaliarEnsaio(
   paginas: PaginaTexto[],
-  ensaio: string
+  ensaio: string,
+  referencia: ReferenciaTopicos,
+  modo: "pdf" | "roteiro",
+  signal?: AbortSignal
 ): Promise<FeedbackResponse> {
   const r = await fetch(`${API_URL}/api/avaliar/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ paginas, ensaio }),
+    body: JSON.stringify({ paginas, ensaio, referencia, modo }),
+    signal,
   });
   if (!r.ok) await tratarErro(r);
   const dados: FeedbackResponse = await r.json();

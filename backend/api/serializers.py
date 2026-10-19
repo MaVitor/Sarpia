@@ -26,6 +26,7 @@ class PaginaTextoSerializer(serializers.Serializer):
 
 class TopicosRequestSerializer(serializers.Serializer):
     paginas = PaginaTextoSerializer(many=True)
+    modo = serializers.ChoiceField(choices=["pdf", "roteiro"], default="pdf")
 
     def validate_paginas(self, value):
         return _validar_paginas(value)
@@ -34,6 +35,13 @@ class TopicosRequestSerializer(serializers.Serializer):
 class AvaliacaoRequestSerializer(serializers.Serializer):
     paginas = PaginaTextoSerializer(many=True)
     ensaio = serializers.CharField(min_length=20, max_length=30000)
+    modo = serializers.ChoiceField(choices=["pdf", "roteiro"], default="pdf")
+    referencia = serializers.DictField(
+        required=True,
+        error_messages={
+            "required": "Prepare os tópicos do material antes de avaliar o ensaio."
+        },
+    )
 
     def validate_ensaio(self, value):
         if not value.strip():

@@ -1,6 +1,6 @@
 """Templates de prompt do Sarpia."""
 
-from api.schemas import PaginaTexto
+from api.schemas import PaginaTexto, ReferenciaTopicos
 
 REGRAS_FUNDAMENTACAO = """
 REGRAS OBRIGATÓRIAS:
@@ -52,8 +52,11 @@ def prompt_topicos(material: str) -> str:
 MATERIAL (texto extraído por slide):
 {material}
 
-Tarefa: liste os tópicos principais que o apresentador precisa explicar, cada um ancorado ao slide correspondente.
-{REGRAS_FUNDAMENTACAO}"""
+Tarefa: liste os tópicos principais que o apresentador precisa explicar, cada um ancorado ao slide correspondente,
+e separe em "topicos_complementares" créditos, agradecimentos, referências puramente bibliográficas e declarações
+de ferramentas usadas na preparação. Preserve a ordem do material e não duplique itens entre as listas.
+{REGRAS_FUNDAMENTACAO}
+{REGRAS_CATEGORIAS}"""
 
 
 def prompt_avaliacao(material: str, ensaio: str) -> str:
@@ -102,6 +105,73 @@ EXEMPLOS DE APLICAÇÃO:
 - Se o material diz que a supervisão humana pode reduzir riscos, "elimina todos os
   riscos" transforma possibilidade em garantia absoluta: trate a mudança de
   modalidade e intensidade como divergência.
+"""
+
+
+def prompt_avaliacao_referencia(
+    material: str, ensaio: str, referencia: ReferenciaTopicos
+) -> str:
+    principais = "\n".join(
+        f'- id="{topico.id}" | título="{topico.titulo}" | categoria=principal | '
+        f"slide={topico.slide} | resumo={topico.resumo}"
+        for topico in referencia.topicos
+    ) or "(nenhum tópico principal)"
+    complementares = "\n".join(
+        f'- id="{topico.id}" | título="{topico.titulo}" | categoria=complementar | '
+        f"slide={topico.slide} | resumo={topico.resumo}"
+        for topico in referencia.topicos_complementares
+    ) or "(nenhum tópico complementar)"
+    return f"""Você é um avaliador de ensaios. Avalie o ensaio contra a referência canônica abaixo.
+
+MATERIAL DE REFERÊNCIA (slides):
+{material}
+
+ENSAIO DO USUÁRIO:
+{ensaio}
+
+REFERÊNCIA CANÔNICA DE TÓPICOS:
+Tópicos principais:
+{principais}
+
+Tópicos complementares:
+{complementares}
+
+Regras da resposta:
+- devolva exatamente um item para cada ID da referência, sem adicionar, remover,
+  duplicar ou recategorizar tópicos;
+- use os IDs exatamente como fornecidos; não devolva título, categoria ou página
+  nesses itens, pois esses metadados são controlados pelo sistema;
+- preserve a separação entre "topicos" e "topicos_complementares";
+- produza as demais seções do feedback normalmente;
+- "cobertura_percentual" será recalculado pelo backend e não deve ser tratado como nota.
+- quando houver uma afirmação correta e outra que a contradiz sobre o mesmo assunto,
+  reconheça a parte correta e aponte explicitamente o conflito em "erros_conteudo";
+  não duplique automaticamente o apontamento em "info_nao_sustentada";
+- para um tópico abordado com contradição relevante, use status "parcial", não
+  "omitido", e explique no comentário o que foi correto e o que entrou em conflito;
+- em cada "erros_conteudo", identifique em "descricao" o trecho exato do ensaio
+  que deve ser corrigido, compare-o com "trecho_material" e escreva em "correcao"
+  uma substituição acionável, preservando possibilidade, escopo e intensidade;
+- a correção deve dizer "corrigir o trecho do ensaio referente à página N",
+  quando aplicável, e nunca recomendar uma nova afirmação absoluta que não esteja
+  sustentada pelo material;
+
+Ao avaliar cobertura e conteúdo, aplique as regras de fundamentação:
+{REGRAS_FUNDAMENTACAO}
+{REGRAS_CATEGORIAS}
+
+O resumo deve distinguir problemas conceituais, omissões principais e observações
+complementares. O próximo passo deve priorizar contradições e lacunas principais
+antes de créditos ou declarações complementares.
+
+Exemplo de contradição parcial:
+Material: "O viés pode surgir na coleta e no treinamento."
+Ensaio: "Pode surgir na coleta. Surge exclusivamente depois da produção."
+Reconheça que a coleta foi mencionada corretamente, mas que a segunda afirmação
+contradiz o material. Use status "parcial" para o tópico, descreva as duas partes
+em "erros_conteudo" e recomende: "O viés pode surgir ainda na coleta e no
+treinamento; portanto, não se limita à fase de produção." Não recomende que o
+viés surge exclusivamente antes ou depois de uma fase.
 """
 
 

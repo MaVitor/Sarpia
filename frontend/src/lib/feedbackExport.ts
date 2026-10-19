@@ -4,6 +4,16 @@ const EXPLICACAO_COBERTURA =
   "Proporção de tópicos identificados como cobertos ou parciais. " +
   "Não representa nota nem comprovação de domínio do conteúdo.";
 
+function avisoDivergencias(quantidade: number): string {
+  if (!quantidade) return "";
+  const plural = quantidade === 1 ? "" : "s";
+  return [
+    `Atenção: ${quantidade} divergência${plural} de conteúdo identificada${plural}.`,
+    "A cobertura indica os tópicos abordados, não a correção de todas as explicações.",
+    "Consulte a seção detalhada de divergências de conteúdo.",
+  ].join("\n");
+}
+
 export interface FeedbackExportMaterial {
   nome: string;
 }
@@ -84,6 +94,7 @@ export function formatarFeedbackTexto(
       ? linha("Percentual", `${feedback.cobertura_percentual}%`)
       : "Cobertura não calculável: nenhum tópico principal identificado.",
     EXPLICACAO_COBERTURA,
+    avisoDivergencias(feedback.erros_conteudo.length),
     feedback.topicos.length
       ? `Quantidade de tópicos principais: ${feedback.topicos.length}`
       : "Nenhum tópico principal identificado.",

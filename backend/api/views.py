@@ -4,7 +4,16 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from api.schemas import FeedbackResponse, PaginaTexto, PerguntasResponse, TopicosResponse
+from api.schemas import (
+    FeedbackInternoResponse,
+    FeedbackResponse,
+    PaginaTexto,
+    PerguntasResponse,
+    TopicoAvaliado,
+    TopicoAvaliadoInterno,
+    TopicoReferencia,
+    TopicosResponse,
+)
 from api.serializers import (
     AvaliacaoRequestSerializer,
     PerguntasRequestSerializer,
@@ -13,6 +22,7 @@ from api.serializers import (
 from api.services import gemini
 from api.services import pdf as pdf_service
 from api.services import prompts
+from api.services import referencia as referencia_service
 
 
 def _erro_gemini(exc: gemini.GeminiErro) -> Response:
@@ -27,6 +37,21 @@ def _calcular_cobertura(resultado: FeedbackResponse) -> int:
         topico.status in {"coberto", "parcial"} for topico in resultado.topicos
     )
     return round(cobertos * 100 / total)
+
+
+def _compor_topico(
+    referencia: TopicoReferencia, avaliado: TopicoAvaliadoInterno
+) -> TopicoAvaliado:
+    return TopicoAvaliado(
+        id=referencia.id,
+        titulo=referencia.titulo,
+        categoria=referencia.categoria,
+        slide=referencia.slide,
+        status=avaliado.status,
+        trecho_material=avaliado.trecho_material,
+        trecho_ensaio=avaliado.trecho_ensaio,
+        comentario=avaliado.comentario,
+    )
 
 
 class SaudeView(APIView):
@@ -84,7 +109,8 @@ class TopicosView(APIView):
     def post(self, request):
         serializer = TopicosRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        paginas = [PaginaTexto(**p) for p in serializer.validated_data["paginas"]]
+        paginas_dict = serializer.validated_data["paginas"]
+        paginas = [PaginaTexto(**p) for p in paginas_dict]
         material = prompts.formatar_material(paginas)
         try:
             resultado = gemini.gerar_estruturado(
@@ -92,26 +118,92 @@ class TopicosView(APIView):
             )
         except gemini.GeminiErro as exc:
             return _erro_gemini(exc)
-        return Response(resultado.model_dump())
+        try:
+            referencia = referencia_service.criar_referencia(
+                serializer.validated_data["modo"],
+                paginas_dict,
+                resultado.topicos,
+                getattr(resultado, "topicos_complementares", []),
+            )
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=502)
+        return Response(referencia.model_dump())
 
 
 class AvaliarView(APIView):
     def post(self, request):
         serializer = AvaliacaoRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        paginas = [PaginaTexto(**p) for p in serializer.validated_data["paginas"]]
+        paginas_dict = serializer.validated_data["paginas"]
+        try:
+            referencia = referencia_service.validar_referencia(
+                serializer.validated_data["referencia"],
+                serializer.validated_data["modo"],
+                paginas_dict,
+            )
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=400)
+        paginas = [PaginaTexto(**p) for p in paginas_dict]
         material = prompts.formatar_material(paginas)
         try:
             resultado = gemini.gerar_estruturado(
-                prompts.prompt_avaliacao(material, serializer.validated_data["ensaio"]),
-                FeedbackResponse,
+                prompts.prompt_avaliacao_referencia(
+                    material, serializer.validated_data["ensaio"], referencia
+                ),
+                FeedbackInternoResponse,
             )
         except gemini.GeminiErro as exc:
             return _erro_gemini(exc)
-        resultado = resultado.model_copy(
-            update={"cobertura_percentual": _calcular_cobertura(resultado)}
+        esperado_principal = {topico.id for topico in referencia.topicos}
+        esperado_complementar = {
+            topico.id for topico in referencia.topicos_complementares
+        }
+        ids_principais = [topico.id for topico in resultado.topicos]
+        ids_complementares = [topico.id for topico in resultado.topicos_complementares]
+        if (
+            len(ids_principais) != len(set(ids_principais))
+            or len(ids_complementares) != len(set(ids_complementares))
+            or set(ids_principais) != esperado_principal
+            or set(ids_complementares) != esperado_complementar
+        ):
+            return Response(
+                {"detail": "A resposta da análise não corresponde à referência de tópicos."},
+                status=502,
+            )
+        principais_por_id = {topico.id: topico for topico in referencia.topicos}
+        complementares_por_id = {
+            topico.id: topico for topico in referencia.topicos_complementares
+        }
+        avaliados_principais = {item.id: item for item in resultado.topicos}
+        avaliados_complementares = {
+            item.id: item for item in resultado.topicos_complementares
+        }
+        principais = [
+            _compor_topico(principais_por_id[topico.id], avaliados_principais[topico.id])
+            for topico in referencia.topicos
+        ]
+        complementares = [
+            _compor_topico(
+                complementares_por_id[topico.id], avaliados_complementares[topico.id]
+            )
+            for topico in referencia.topicos_complementares
+        ]
+        publico = FeedbackResponse(
+            resumo_geral=resultado.resumo_geral,
+            cobertura_percentual=0,
+            topicos=principais,
+            topicos_complementares=complementares,
+            erros_conteudo=resultado.erros_conteudo,
+            info_nao_sustentada=resultado.info_nao_sustentada,
+            ordem_apresentacao=resultado.ordem_apresentacao,
+            perguntas_banca=resultado.perguntas_banca,
+            proximo_passo=resultado.proximo_passo,
         )
-        return Response(resultado.model_dump())
+        return Response(
+            publico.model_copy(
+                update={"cobertura_percentual": _calcular_cobertura(publico)}
+            ).model_dump()
+        )
 
 
 class PerguntasView(APIView):

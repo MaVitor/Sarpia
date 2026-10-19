@@ -20,13 +20,33 @@ class Topico(BaseModel):
     resumo: str
 
 
+class TopicoReferencia(BaseModel):
+    id: str
+    titulo: str
+    categoria: Literal["principal", "complementar"]
+    slide: int
+    resumo: str
+
+
+class ReferenciaTopicos(BaseModel):
+    versao_contrato: str
+    modo: Literal["pdf", "roteiro"]
+    material_hash: str
+    topicos: list[TopicoReferencia]
+    topicos_complementares: list[TopicoReferencia] = Field(default_factory=list)
+    assinatura: str
+
+
 class TopicosResponse(BaseModel):
     topicos: list[Topico]
+    topicos_complementares: list[Topico] = Field(default_factory=list)
 
 
 class TopicoAvaliado(BaseModel):
+    id: str | None = None
     titulo: str
     slide: int
+    categoria: Literal["principal", "complementar"] = "principal"
     status: Literal["coberto", "parcial", "omitido"]
     trecho_material: str
     trecho_ensaio: str
@@ -64,3 +84,23 @@ class FeedbackResponse(BaseModel):
 
 class PerguntasResponse(BaseModel):
     perguntas: list[str]
+
+
+class TopicoAvaliadoInterno(BaseModel):
+    id: str
+    status: Literal["coberto", "parcial", "omitido"]
+    trecho_material: str
+    trecho_ensaio: str
+    comentario: str
+
+
+class FeedbackInternoResponse(BaseModel):
+    resumo_geral: str
+    cobertura_percentual: int = Field(ge=0, le=100)
+    topicos: list[TopicoAvaliadoInterno]
+    topicos_complementares: list[TopicoAvaliadoInterno] = Field(default_factory=list)
+    erros_conteudo: list[ErroConteudo]
+    info_nao_sustentada: list[InfoNaoSustentada]
+    ordem_apresentacao: OrdemApresentacao
+    perguntas_banca: list[str]
+    proximo_passo: str

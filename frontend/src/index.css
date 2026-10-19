@@ -361,6 +361,9 @@ section h2 { text-align: center; font-size: 1.5rem; }
 .feedback-list blockquote { margin: .6rem 0; border-left: 3px solid var(--highlight); padding-left: .75rem; color: var(--muted-foreground); white-space: pre-wrap; }
 .feedback-list article > p { margin-top: .45rem; }
 .section-note, .coverage-counts { color: var(--muted-foreground); font-size: .85rem; line-height: 1.5; }
+.coverage-warning { margin-top: .9rem; border-left: 3px solid var(--highlight); padding: .7rem .85rem; line-height: 1.5; }
+.coverage-warning p { color: var(--foreground); font-size: .85rem; }
+.coverage-warning a { display: inline-block; margin-top: .35rem; color: var(--primary); font-weight: 600; }
 .empty-state { margin-top: .75rem; color: var(--muted-foreground); }
 .feedback-two-col .flow-card { margin-top: 0; line-height: 1.6; }
 .feedback-two-col ul { margin: .75rem 0 0 1.25rem; line-height: 1.7; }
@@ -377,6 +380,7 @@ section h2 { text-align: center; font-size: 1.5rem; }
   .flow-feedback-shell { background: #fff; color: #000; }
   .flow-feedback-shell > header, .flow-feedback-shell > footer,
   .flow-feedback-shell .feedback-actions, .flow-feedback-shell .export-card { display: none !important; }
+  .flow-feedback-shell .coverage-warning a { display: none; }
   .flow-feedback-shell .flow-page { max-width: none; padding: 0; }
   .flow-feedback-shell .flow-title { font-size: 2rem; }
   .flow-feedback-shell .feedback-report-heading { margin-top: 0; }

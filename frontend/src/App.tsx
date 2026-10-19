@@ -4,7 +4,7 @@ import MaterialPage from "./components/MaterialPage";
 import EssayPage from "./components/EssayPage";
 import FeedbackPage from "./components/FeedbackPage";
 import { SiteFooter, SiteHeader } from "./components/SiteChrome";
-import type { FeedbackResponse, PaginaTexto, Topico } from "./lib/api";
+import type { FeedbackResponse, PaginaTexto, ReferenciaTopicos } from "./lib/api";
 
 type Tela = "inicio" | "material" | "ensaio" | "feedback";
 
@@ -13,7 +13,8 @@ export default function App() {
   const [paginas, setPaginas] = useState<PaginaTexto[]>([]);
   const [nomeMaterial, setNomeMaterial] = useState("");
   const [aviso, setAviso] = useState<string | null>(null);
-  const [topicos, setTopicos] = useState<Topico[]>([]);
+  const [referencia, setReferencia] = useState<ReferenciaTopicos | null>(null);
+  const [modoMaterial, setModoMaterial] = useState<"pdf" | "roteiro">("pdf");
   const [ensaio, setEnsaio] = useState("");
   const [feedback, setFeedback] = useState<FeedbackResponse | null>(null);
 
@@ -24,24 +25,24 @@ export default function App() {
   }, [tela]);
   function iniciar() { setTela("material"); }
   function materialAtualizado(novasPaginas: PaginaTexto[], nome: string, novoAviso: string | null) {
-    setPaginas(novasPaginas); setNomeMaterial(nome); setAviso(novoAviso); setTopicos([]); setFeedback(null);
+    setPaginas(novasPaginas); setNomeMaterial(nome); setAviso(novoAviso); setReferencia(null); setFeedback(null);
   }
   function confirmar(descricao: string): boolean { return window.confirm(descricao); }
   function trocarMaterial() {
     if (confirmar("Trocar o material e descartar o feedback atual?")) {
-      setPaginas([]); setTopicos([]); setFeedback(null); setEnsaio(""); setTela("material");
+      setPaginas([]); setReferencia(null); setFeedback(null); setEnsaio(""); setTela("material");
     }
   }
   function voltarInicio() {
     if (confirmar("Voltar ao início e descartar o trabalho desta sessão?")) {
-      setPaginas([]); setTopicos([]); setFeedback(null); setEnsaio(""); setTela("inicio");
+      setPaginas([]); setReferencia(null); setFeedback(null); setEnsaio(""); setTela("inicio");
     }
   }
   return <>
     {tela === "inicio" && <LandingPage onStart={iniciar} />}
     {tela !== "inicio" && <div className={`shell ${tela === "feedback" ? "flow-feedback-shell" : ""}`}><SiteHeader />
-      {tela === "material" && <MaterialPage paginas={paginas} topicos={topicos} onMaterial={materialAtualizado} onTopicos={setTopicos} onContinue={() => setTela("ensaio")} />}
-      {tela === "ensaio" && <EssayPage paginas={paginas} topicos={topicos} ensaio={ensaio} onEnsaio={setEnsaio} onFeedback={(novoFeedback) => { setFeedback(novoFeedback); if (novoFeedback) setTela("feedback"); }} onBack={() => setTela("material")} />}
+      {tela === "material" && <MaterialPage paginas={paginas} referencia={referencia} onMaterial={(novasPaginas, nome, novoAviso, modo) => { materialAtualizado(novasPaginas, nome, novoAviso); setModoMaterial(modo); }} onReferencia={setReferencia} onContinue={() => setTela("ensaio")} />}
+      {tela === "ensaio" && <EssayPage paginas={paginas} referencia={referencia} modo={modoMaterial} ensaio={ensaio} onEnsaio={setEnsaio} onFeedback={(novoFeedback) => { setFeedback(novoFeedback); if (novoFeedback) setTela("feedback"); }} onBack={() => setTela("material")} />}
       {tela === "feedback" && feedback && <FeedbackPage feedback={feedback} materialNome={nomeMaterial} onReview={() => setTela("ensaio")} onChangeMaterial={trocarMaterial} onHome={voltarInicio} />}
       <SiteFooter />
     </div>}
