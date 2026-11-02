@@ -4,6 +4,7 @@ import { avaliarEnsaio, type PaginaTexto, type ReferenciaTopicos, type FeedbackR
 interface Props {
   paginas: PaginaTexto[];
   referencia: ReferenciaTopicos | null;
+  presentationId: string | null;
   modo: "pdf" | "roteiro";
   ensaio: string;
   onEnsaio: (texto: string) => void;
@@ -11,7 +12,7 @@ interface Props {
   onBack: () => void;
 }
 
-export default function EssayPage({ paginas, referencia, modo, ensaio, onEnsaio, onFeedback, onBack }: Props) {
+export default function EssayPage({ paginas, referencia, presentationId, modo, ensaio, onEnsaio, onFeedback, onBack }: Props) {
   const [erro, setErro] = useState("");
   const [carregando, setCarregando] = useState(false);
   const avaliacaoAtual = useRef<AbortController | null>(null);
@@ -24,7 +25,18 @@ export default function EssayPage({ paginas, referencia, modo, ensaio, onEnsaio,
     const controlador = new AbortController();
     avaliacaoAtual.current = controlador;
     setErro(""); setCarregando(true);
-    try { const resultado = await avaliarEnsaio(paginas, ensaio, referencia, modo, controlador.signal); onFeedback(resultado); }
+    try {
+      const resultado = await avaliarEnsaio(
+        ensaio,
+        presentationId,
+        paginas,
+        referencia,
+        modo,
+        crypto.randomUUID(),
+        controlador.signal
+      );
+      onFeedback(resultado);
+    }
     catch (e) { if (!(e instanceof DOMException && e.name === "AbortError")) setErro(e instanceof Error ? e.message : "Não foi possível avaliar o ensaio."); }
     finally { setCarregando(false); }
   }

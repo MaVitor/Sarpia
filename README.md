@@ -17,10 +17,10 @@ O Sarpia **não atribui nota oficial nem substitui** professor, orientador, coac
 ## Stack
 
 - **Frontend:** React + TypeScript + Vite
-- **Backend:** Django + Django REST Framework (stateless, sem banco no MVP)
+- **Backend:** Django + Django REST Framework + django-allauth (sessão, usuários e histórico persistente)
 - **IA:** Gemini API com rotação de chaves (KeyPool) e structured output
 - **PDF:** PyMuPDF
-- **Futuro:** PostgreSQL (Django ORM + auth já prontos para essa fase)
+- **Banco:** SQLite explícito por padrão no desenvolvimento; PostgreSQL quando as variáveis `POSTGRES_*` forem preenchidas
 
 ## Estrutura do projeto
 
@@ -28,7 +28,7 @@ O Sarpia **não atribui nota oficial nem substitui** professor, orientador, coac
 Sarpia/
 ├── backend/
 │   ├── config/                # Projeto Django (settings, urls, wsgi/asgi)
-│   ├── api/                   # App Django (sem models no MVP — stateless)
+│   ├── api/                   # App Django (análise e autenticação)
 │   │   ├── schemas.py         # Contratos Pydantic = response_schema do Gemini
 │   │   ├── serializers.py     # Validação das requisições (DRF)
 │   │   ├── views.py           # Endpoints
@@ -69,7 +69,33 @@ python manage.py runserver
 
 API em http://localhost:8000 — a API navegável do DRF responde nos próprios endpoints (ex.: http://localhost:8000/api/saude/).
 
-> O aviso "you have unapplied database migrations" pode ser ignorado no MVP: não usamos banco de dados nesta fase.
+Após configurar a autenticação, aplique as migrations normalmente:
+
+```bash
+python manage.py migrate
+```
+
+Para usar PostgreSQL, preencha no `.env` as cinco variáveis `POSTGRES_DB`,
+`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST` e `POSTGRES_PORT`.
+Quando qualquer uma delas for preenchida, todas passam a ser obrigatórias e o
+backend não faz fallback silencioso para SQLite. Exemplo de criação local:
+
+```sql
+CREATE USER sarpia WITH PASSWORD 'troque-esta-senha';
+CREATE DATABASE sarpia OWNER sarpia;
+```
+
+Depois, execute `python manage.py migrate`. O banco PostgreSQL é independente
+do SQLite: contas e sessões existentes no `db.sqlite3` não são transferidas
+automaticamente.
+
+O cadastro envia uma mensagem de confirmação para o backend de console quando
+`ACCOUNT_EMAIL_VERIFICATION=optional`; a conta pode entrar imediatamente, mas
+o e-mail não foi entregue. Em produção, configure um backend SMTP/SES e
+`ACCOUNT_EMAIL_VERIFICATION=mandatory` se a confirmação for obrigatória.
+
+As rotas de sessão são `/api/auth/csrf/`, `/api/auth/session/`,
+`/api/auth/login/`, `/api/auth/signup/` e `/api/auth/logout/`.
 
 ### Frontend
 
@@ -89,6 +115,15 @@ cd backend
 python manage.py test
 ```
 
+### Histórico
+
+Apresentações preparadas, páginas textuais, referências, ensaios e feedbacks
+validados são armazenados por usuário. O histórico permite retomar uma
+apresentação com a referência original e consultar ou excluir tentativas.
+Uma nova apresentação/referência não sobrescreve avaliações anteriores.
+O PDF binário não é armazenado nesta etapa. Não há histórico, materiais ou
+feedbacks no `localStorage` ou `sessionStorage`.
+
 ## Roadmap (resumo)
 
 - **M1** — Análise de ensaio em texto colado
@@ -101,4 +136,10 @@ Detalhes em `docs/ROADMAP.md`.
 
 ## Privacidade
 
-O backend é **stateless**: nada é salvo em banco de dados no MVP. Arquivos e ensaios trafegam apenas para gerar o feedback. Atenção: no free tier da API Gemini, o Google pode usar prompts e respostas para melhorar seus modelos — não envie materiais confidenciais nesta fase. As chaves da API ficam somente no backend, em variáveis de ambiente, nunca no frontend ou no Git.
+Usuários, e-mails de confirmação, sessões e o histórico de apresentações são
+persistidos pelo Django/allauth e pelos modelos da API. Materiais textuais,
+ensaios e feedbacks ficam armazenados na conta até a exclusão da apresentação.
+Atenção: no free tier da API Gemini, o Google pode usar prompts e respostas
+para melhorar seus modelos — não envie materiais confidenciais nesta fase. As
+chaves da API ficam somente no backend, em variáveis de ambiente, nunca no
+frontend ou no Git.

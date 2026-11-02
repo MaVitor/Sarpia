@@ -4,16 +4,19 @@ import { enviarMaterial, extrairTopicos, type MaterialResponse, type PaginaTexto
 export const MAX_PAGINAS = 20;
 export const MAX_MATERIAL_CHARS = 50000;
 export const MAX_PDF_MB = 8;
+// Permite duas chamadas de 60 s e o pequeno backoff do backend sem criar retry no navegador.
+const TOPICOS_TIMEOUT_MS = 125_000;
 
 interface Props {
   paginas: PaginaTexto[];
   referencia: ReferenciaTopicos | null;
   onMaterial: (paginas: PaginaTexto[], nome: string, aviso: string | null, modo: "pdf" | "roteiro") => void;
   onReferencia: (referencia: ReferenciaTopicos | null) => void;
+  onPresentation: (id: string) => void;
   onContinue: () => void;
 }
 
-export default function MaterialPage({ paginas, referencia, onMaterial, onReferencia, onContinue }: Props) {
+export default function MaterialPage({ paginas, referencia, onMaterial, onReferencia, onPresentation, onContinue }: Props) {
   const [modo, setModo] = useState<"pdf" | "roteiro">("pdf");
   const [arquivo, setArquivo] = useState("");
   const [roteiro, setRoteiro] = useState(paginas.length === 1 && paginas[0].numero === 1 ? paginas[0].texto : "");
@@ -53,14 +56,30 @@ export default function MaterialPage({ paginas, referencia, onMaterial, onRefere
     const controlador = new AbortController();
     requisicaoAtual.current = controlador;
     setErro(""); setCarregando("topicos");
-    try { const resultado = await extrairTopicos(paginas, modo, controlador.signal); onReferencia(resultado); setTopicosObtidos(true); }
-    catch (e) { if (!(e instanceof DOMException && e.name === "AbortError")) setErro(e instanceof Error ? e.message : "Não foi possível identificar os tópicos."); }
-    finally { setCarregando(""); }
+    const timer = window.setTimeout(() => controlador.abort("timeout"), TOPICOS_TIMEOUT_MS);
+    try {
+      const resultado = await extrairTopicos(paginas, modo, arquivo || "Roteiro", controlador.signal);
+      if (controlador !== requisicaoAtual.current) return;
+      onReferencia(resultado);
+      onPresentation(resultado.presentation_id);
+      setTopicosObtidos(true);
+    }
+    catch (e) {
+      if (controlador.signal.reason === "timeout") {
+        setErro("A análise demorou mais que o limite local. O material permanece nesta tela; tente novamente.");
+      } else if (!(e instanceof DOMException && e.name === "AbortError")) {
+        setErro(e instanceof Error ? e.message : "Não foi possível identificar os tópicos.");
+      }
+    }
+    finally {
+      window.clearTimeout(timer);
+      if (controlador === requisicaoAtual.current) setCarregando("");
+    }
   }
   const materialPronto = paginas.length > 0;
   return <main className="flow-page flow-material" tabIndex={-1}>
     <p className="flow-kicker">Etapa 1 de 3</p><h1 className="flow-title" tabIndex={-1}>Escolha seu material</h1>
-    <p className="flow-lede">Material e ensaio serão enviados ao provedor de IA para análise. Nada é salvo no navegador.</p>
+    <p className="flow-lede">O material, os ensaios e os feedbacks ficam salvos na sua conta para você retomar depois.</p>
     <div className="material-options"><section className={`flow-card ${modo === "pdf" ? "is-selected" : ""}`}><h2>Enviar slides em PDF</h2><p>Até {MAX_PDF_MB} MB e {MAX_PAGINAS} páginas.</p><label className="file-button" htmlFor="material-pdf">{carregando === "upload" ? "Enviando..." : "Escolher PDF"}</label><input id="material-pdf" type="file" accept=".pdf,application/pdf" onChange={(e) => void selecionar(e.target.files?.[0])} disabled={carregando !== ""} /><p className="file-name">{arquivo || "Nenhum arquivo escolhido"}</p>{resposta && <><p>{resposta.total_paginas} páginas extraídas.</p>{resposta.aviso && <p className="flow-notice">{resposta.aviso}</p>}</>}</section>
       <section className={`flow-card ${modo === "roteiro" ? "is-selected" : ""}`}><h2>Colar um roteiro</h2><p>Até {MAX_MATERIAL_CHARS.toLocaleString("pt-BR")} caracteres.</p><label htmlFor="roteiro">Seu roteiro</label><textarea id="roteiro" value={roteiro} maxLength={MAX_MATERIAL_CHARS} onFocus={() => setModo("roteiro")} onChange={(e) => { setRoteiro(e.target.value); setResposta(null); onReferencia(null); setTopicosObtidos(false); }} rows={8} /><span className="char-count">{roteiro.length.toLocaleString("pt-BR")} / {MAX_MATERIAL_CHARS.toLocaleString("pt-BR")}</span><button className="btn secondary-btn" type="button" onClick={usarRoteiro}>Usar roteiro</button></section></div>
     {resposta && <section className="flow-card extracted-card"><h2>Texto extraído</h2><div className="page-list">{resposta.paginas.map((pagina) => <details key={pagina.numero}><summary>Página {pagina.numero}</summary><pre>{pagina.texto || "Nenhum texto extraído nesta página."}</pre></details>)}</div></section>}

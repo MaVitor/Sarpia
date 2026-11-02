@@ -2,8 +2,11 @@ import re
 from unittest.mock import patch
 
 import fitz
-from django.test import SimpleTestCase, override_settings
+import httpx
+from django.contrib.auth import get_user_model
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.core.files.uploadedfile import SimpleUploadedFile
+from pydantic import BaseModel
 from rest_framework.test import APIClient
 
 from api.schemas import (
@@ -30,9 +33,14 @@ class SaudeTests(SimpleTestCase):
         self.assertEqual(resposta.json()["status"], "ok")
 
 
-class ApiValidacaoTests(SimpleTestCase):
+class ApiValidacaoTests(TestCase):
     def setUp(self):
         self.client = APIClient()
+        self.client.force_authenticate(
+            user=get_user_model().objects.create_user(
+                username="validacao", email="validacao@example.com", password="Senha-forte-123"
+            )
+        )
         self.paginas = [{"numero": 1, "texto": "Conteúdo útil do slide."}]
 
     def test_rejeita_paginas_vazias(self):
@@ -66,7 +74,7 @@ class ApiValidacaoTests(SimpleTestCase):
         self.assertEqual(resposta.status_code, 400)
 
 
-class PDFTests(SimpleTestCase):
+class PDFTests(TestCase):
     @staticmethod
     def _pdf_com_paginas(textos):
         documento = fitz.open()
@@ -109,11 +117,21 @@ class PDFTests(SimpleTestCase):
 
     def setUp(self):
         self.client = APIClient()
+        self.client.force_authenticate(
+            user=get_user_model().objects.create_user(
+                username="pdf", email="pdf@example.com", password="Senha-forte-123"
+            )
+        )
 
 
-class GeminiViewTests(SimpleTestCase):
+class GeminiViewTests(TestCase):
     def setUp(self):
         self.client = APIClient()
+        self.client.force_authenticate(
+            user=get_user_model().objects.create_user(
+                username="gemini", email="gemini@example.com", password="Senha-forte-123"
+            )
+        )
         self.paginas = [{"numero": 1, "texto": "Material de referência."}]
         referencia = criar_referencia(
             "pdf",
@@ -460,6 +478,101 @@ class GeminiViewTests(SimpleTestCase):
         self.assertIn("codigo_provedor=503", log)
         self.assertNotIn("segredo", log)
         self.assertNotIn("prompt privado", log)
+
+
+
+class GeminiServiceTests(SimpleTestCase):
+    def test_cliente_sdk_usa_uma_tentativa_de_rede(self):
+        class Resultado(BaseModel):
+            valor: int
+
+        cliente = type("ClienteFalso", (), {})()
+        cliente.models = type("ModelosFalsos", (), {})()
+        cliente.models.generate_content = lambda **kwargs: type(
+            "RespostaFalsa", (), {"text": '{"valor": 7}'}
+        )()
+        cliente.close = lambda: None
+        with override_settings(GEMINI_API_KEYS="chave-de-teste", GEMINI_TIMEOUT_MS=60000):
+            with patch("api.services.gemini.genai.Client", return_value=cliente) as factory:
+                resultado = gemini._chamar_gemini("prompt privado", Resultado)
+
+        opcoes = factory.call_args.kwargs["http_options"]
+        self.assertEqual(opcoes.timeout, 60000)
+        self.assertEqual(opcoes.retry_options.attempts, 1)
+        self.assertEqual(resultado.valor, 7)
+
+    def test_resposta_valida_nao_e_repetida(self):
+        resultado_esperado = FeedbackResponse(
+            resumo_geral="Resumo",
+            cobertura_percentual=0,
+            topicos=[],
+            erros_conteudo=[],
+            info_nao_sustentada=[],
+            ordem_apresentacao={"avaliacao": "ok", "sugestao": "ok"},
+            perguntas_banca=[],
+            proximo_passo="ok",
+        )
+        with patch(
+            "api.services.gemini._chamar_gemini",
+            return_value=resultado_esperado,
+        ) as chamar:
+            resultado = gemini.gerar_estruturado(
+                "prompt privado", FeedbackResponse
+            )
+
+        self.assertEqual(resultado, resultado_esperado)
+        chamar.assert_called_once()
+
+    @override_settings(GEMINI_API_KEYS="chave-de-teste", GEMINI_MAX_TENTATIVAS=2)
+    def test_timeout_httpx_retorna_504_sem_repetir(self):
+        timeout = httpx.ReadTimeout("tempo excedido")
+        with patch("api.services.gemini._chamar_gemini", side_effect=timeout) as chamar:
+            with self.assertRaises(GeminiErro) as contexto:
+                gemini.gerar_estruturado("prompt privado", FeedbackResponse)
+
+        self.assertEqual(contexto.exception.status, 504)
+        self.assertEqual(contexto.exception.categoria, "timeout")
+        self.assertIn("permanece nesta tela", contexto.exception.detail)
+        chamar.assert_called_once()
+
+    @override_settings(GEMINI_API_KEYS="chave-de-teste", GEMINI_MAX_TENTATIVAS=2)
+    def test_server_error_503_repete_apenas_dentro_do_limite(self):
+        erro = gemini.genai_errors.ServerError(503, {"error": {"message": "indisponível"}})
+        with patch("api.services.gemini._chamar_gemini", side_effect=erro) as chamar:
+            with patch("api.services.gemini.time.sleep"):
+                with self.assertRaises(GeminiErro) as contexto:
+                    gemini.gerar_estruturado("prompt privado", FeedbackResponse)
+
+        self.assertEqual(contexto.exception.status, 503)
+        self.assertEqual(contexto.exception.categoria, "indisponibilidade")
+        self.assertEqual(chamar.call_count, 2)
+
+    @override_settings(GEMINI_API_KEYS="chave-de-teste", GEMINI_MAX_TENTATIVAS=2)
+    def test_server_error_504_e_limite_nao_repetem_a_chamada(self):
+        for codigo, categoria in ((504, "timeout"), (429, "limite")):
+            erro = gemini.genai_errors.ServerError(
+                codigo, {"error": {"message": "falha controlada"}}
+            )
+            with self.subTest(codigo=codigo):
+                with patch("api.services.gemini._chamar_gemini", side_effect=erro) as chamar:
+                    with self.assertRaises(GeminiErro) as contexto:
+                        gemini.gerar_estruturado("prompt privado", FeedbackResponse)
+                self.assertEqual(contexto.exception.status, codigo)
+                self.assertEqual(contexto.exception.categoria, categoria)
+                chamar.assert_called_once()
+
+    @override_settings(GEMINI_API_KEYS="chave-de-teste", GEMINI_MAX_TENTATIVAS=2)
+    def test_falha_de_autenticacao_nao_e_tratada_como_limite(self):
+        erro = gemini.genai_errors.ClientError(
+            401, {"error": {"message": "credencial inválida"}}
+        )
+        with patch("api.services.gemini._chamar_gemini", side_effect=erro) as chamar:
+            with self.assertRaises(GeminiErro) as contexto:
+                gemini.gerar_estruturado("prompt privado", FeedbackResponse)
+
+        self.assertEqual(contexto.exception.status, 503)
+        self.assertEqual(contexto.exception.categoria, "autenticacao")
+        chamar.assert_called_once()
 
 
 class PromptTests(SimpleTestCase):

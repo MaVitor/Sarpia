@@ -1,8 +1,20 @@
+import uuid
+import re
+
 from django.conf import settings
+from django.contrib.auth import logout
+from django.db import IntegrityError, transaction
+from django.shortcuts import get_object_or_404
+from django.middleware.csrf import get_token
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
+from rest_framework.permissions import AllowAny
 from rest_framework import status as drf_status
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from allauth.headless.account import views as headless_account_views
+from allauth.headless.constants import Client
 
 from api.schemas import (
     FeedbackInternoResponse,
@@ -23,10 +35,184 @@ from api.services import gemini
 from api.services import pdf as pdf_service
 from api.services import prompts
 from api.services import referencia as referencia_service
+from api.models import Attempt, Presentation
 
 
-def _erro_gemini(exc: gemini.GeminiErro) -> Response:
-    return Response({"detail": exc.detail}, status=exc.status)
+def _headless_view(view_class):
+    return view_class.as_api_view(client=Client.BROWSER)
+
+
+def _usuario_publico(user):
+    if not user.is_authenticated:
+        return None
+    return {
+        "email": user.email,
+        "nome": user.get_full_name() or user.first_name or user.email,
+    }
+
+
+class AuthCsrfView(APIView):
+    permission_classes = [AllowAny]
+
+    @method_decorator(ensure_csrf_cookie)
+    def get(self, request):
+        return Response({"csrfToken": get_token(request._request)})
+
+
+class AuthSessionView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        return Response(
+            {
+                "autenticado": request.user.is_authenticated,
+                "usuario": _usuario_publico(request.user),
+            }
+        )
+
+
+@method_decorator(csrf_protect, name="dispatch")
+class AuthLoginView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        return _headless_view(headless_account_views.LoginView)(
+            request._request
+        )
+
+
+@method_decorator(csrf_protect, name="dispatch")
+class AuthSignupView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        response = _headless_view(headless_account_views.SignupView)(
+            request._request
+        )
+        user = request._request.user
+        if user.is_authenticated:
+            nome = str(request.data.get("nome", "")).strip()
+            if nome:
+                user.first_name = nome[:150]
+                user.save(update_fields=["first_name"])
+        return response
+
+
+@method_decorator(csrf_protect, name="dispatch")
+class AuthLogoutView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        logout(request._request)
+        return Response({"autenticado": False, "usuario": None})
+
+
+def _apresentacao_resumo(apresentacao: Presentation) -> dict:
+    return {
+        "id": str(apresentacao.id),
+        "titulo": apresentacao.title,
+        "modo": apresentacao.mode,
+        "referencia_versao": apresentacao.reference_version,
+        "criada_em": apresentacao.created_at,
+        "atualizada_em": apresentacao.updated_at,
+        "quantidade_tentativas": apresentacao.attempts.count(),
+    }
+
+
+def _tentativa_publica(tentativa: Attempt) -> dict:
+    return {
+        "id": str(tentativa.id),
+        "ensaio": tentativa.essay,
+        "feedback": tentativa.feedback,
+        "referencia_versao": tentativa.reference_version,
+        "modelo": tentativa.model_name or None,
+        "contrato": tentativa.contract_version or None,
+        "criada_em": tentativa.created_at,
+    }
+
+
+class ApresentacoesView(APIView):
+    def get(self, request):
+        apresentacoes = Presentation.objects.filter(owner=request.user)
+        try:
+            page_number = max(1, int(request.query_params.get("page", "1")))
+        except ValueError:
+            page_number = 1
+        page_size = 20
+        inicio = (page_number - 1) * page_size
+        itens = list(apresentacoes[inicio : inicio + page_size + 1])
+        tem_proxima = len(itens) > page_size
+        return Response(
+            {
+                "resultados": [_apresentacao_resumo(item) for item in itens[:page_size]],
+                "pagina": page_number,
+                "tem_proxima": tem_proxima,
+            }
+        )
+
+
+class ApresentacaoDetalheView(APIView):
+    def get(self, request, presentation_id):
+        apresentacao = get_object_or_404(
+            Presentation.objects.filter(owner=request.user), pk=presentation_id
+        )
+        return Response(
+            {
+                **_apresentacao_resumo(apresentacao),
+                "paginas": apresentacao.pages,
+                "referencia": apresentacao.reference,
+                "tentativas": [
+                    _tentativa_publica(tentativa)
+                    for tentativa in apresentacao.attempts.all()
+                ],
+            }
+        )
+
+    def delete(self, request, presentation_id):
+        apresentacao = get_object_or_404(
+            Presentation.objects.filter(owner=request.user), pk=presentation_id
+        )
+        apresentacao.delete()
+        return Response(status=drf_status.HTTP_204_NO_CONTENT)
+
+
+class TentativaDetalheView(APIView):
+    def get(self, request, presentation_id, attempt_id):
+        tentativa = get_object_or_404(
+            Attempt.objects.filter(
+                presentation__owner=request.user,
+                presentation_id=presentation_id,
+            ),
+            pk=attempt_id,
+        )
+        return Response(_tentativa_publica(tentativa))
+
+    def delete(self, request, presentation_id, attempt_id):
+        tentativa = get_object_or_404(
+            Attempt.objects.filter(
+                presentation__owner=request.user,
+                presentation_id=presentation_id,
+            ),
+            pk=attempt_id,
+        )
+        tentativa.delete()
+        return Response(status=drf_status.HTTP_204_NO_CONTENT)
+
+
+def _correlacao(request) -> str:
+    valor = request.headers.get("X-Request-ID", "").strip()
+    if re.fullmatch(r"[A-Za-z0-9._-]{1,64}", valor):
+        return valor
+    return uuid.uuid4().hex
+
+
+def _erro_gemini(exc: gemini.GeminiErro, correlacao: str) -> Response:
+    response = Response(
+        {"detail": exc.detail, "correlacao": correlacao},
+        status=exc.status,
+    )
+    response["X-Request-ID"] = correlacao
+    return response
 
 
 def _calcular_cobertura(resultado: FeedbackResponse) -> int:
@@ -55,6 +241,8 @@ def _compor_topico(
 
 
 class SaudeView(APIView):
+    permission_classes = [AllowAny]
+
     def get(self, request):
         return Response({"status": "ok", "servico": "sarpia-api", "versao": "0.1.0"})
 
@@ -107,6 +295,7 @@ class MateriaisView(APIView):
 
 class TopicosView(APIView):
     def post(self, request):
+        correlacao = _correlacao(request)
         serializer = TopicosRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         paginas_dict = serializer.validated_data["paginas"]
@@ -114,10 +303,10 @@ class TopicosView(APIView):
         material = prompts.formatar_material(paginas)
         try:
             resultado = gemini.gerar_estruturado(
-                prompts.prompt_topicos(material), TopicosResponse
+                prompts.prompt_topicos(material), TopicosResponse, correlacao
             )
         except gemini.GeminiErro as exc:
-            return _erro_gemini(exc)
+            return _erro_gemini(exc, correlacao)
         try:
             referencia = referencia_service.criar_referencia(
                 serializer.validated_data["modo"],
@@ -127,18 +316,57 @@ class TopicosView(APIView):
             )
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=502)
-        return Response(referencia.model_dump())
+        apresentacao = Presentation.objects.create(
+            owner=request.user,
+            title=serializer.validated_data["titulo"],
+            mode=serializer.validated_data["modo"],
+            pages=paginas_dict,
+            reference=referencia.model_dump(),
+            reference_version=referencia.versao_contrato,
+        )
+        return Response(
+            {**referencia.model_dump(), "presentation_id": str(apresentacao.id)}
+        )
 
 
 class AvaliarView(APIView):
     def post(self, request):
+        correlacao = _correlacao(request)
         serializer = AvaliacaoRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        paginas_dict = serializer.validated_data["paginas"]
+        apresentacao = None
+        if serializer.validated_data.get("presentation_id"):
+            apresentacao = get_object_or_404(
+                Presentation.objects.filter(owner=request.user),
+                pk=serializer.validated_data["presentation_id"],
+            )
+            paginas_dict = apresentacao.pages
+            modo = apresentacao.mode
+            referencia_dados = apresentacao.reference
+        else:
+            paginas_dict = serializer.validated_data["paginas"]
+            modo = serializer.validated_data["modo"]
+            referencia_dados = serializer.validated_data["referencia"]
+        idempotency_key = None
+        if apresentacao is not None:
+            idempotency_key = (
+                serializer.validated_data.get("idempotency_key")
+                or request.headers.get("X-Idempotency-Key")
+            )
+            if not idempotency_key:
+                return Response(
+                    {"detail": "Informe uma chave de idempotência para salvar a tentativa."},
+                    status=400,
+                )
+            existente = Attempt.objects.filter(
+                presentation=apresentacao, idempotency_key=idempotency_key
+            ).first()
+            if existente:
+                return Response(existente.feedback)
         try:
             referencia = referencia_service.validar_referencia(
-                serializer.validated_data["referencia"],
-                serializer.validated_data["modo"],
+                referencia_dados,
+                modo,
                 paginas_dict,
             )
         except ValueError as exc:
@@ -151,9 +379,10 @@ class AvaliarView(APIView):
                     material, serializer.validated_data["ensaio"], referencia
                 ),
                 FeedbackInternoResponse,
+                correlacao,
             )
         except gemini.GeminiErro as exc:
-            return _erro_gemini(exc)
+            return _erro_gemini(exc, correlacao)
         esperado_principal = {topico.id for topico in referencia.topicos}
         esperado_complementar = {
             topico.id for topico in referencia.topicos_complementares
@@ -199,15 +428,33 @@ class AvaliarView(APIView):
             perguntas_banca=resultado.perguntas_banca,
             proximo_passo=resultado.proximo_passo,
         )
-        return Response(
-            publico.model_copy(
-                update={"cobertura_percentual": _calcular_cobertura(publico)}
-            ).model_dump()
+        feedback = publico.model_copy(
+            update={"cobertura_percentual": _calcular_cobertura(publico)}
         )
+        feedback_data = feedback.model_dump()
+        if apresentacao is not None:
+            try:
+                with transaction.atomic():
+                    tentativa = Attempt.objects.create(
+                        presentation=apresentacao,
+                        essay=serializer.validated_data["ensaio"],
+                        feedback=feedback_data,
+                        reference_version=apresentacao.reference_version,
+                        contract_version=referencia.versao_contrato,
+                        model_name=getattr(settings, "GEMINI_MODEL", ""),
+                        idempotency_key=idempotency_key,
+                    )
+            except IntegrityError:
+                tentativa = Attempt.objects.get(
+                    presentation=apresentacao, idempotency_key=idempotency_key
+                )
+            apresentacao.save(update_fields=["updated_at"])
+        return Response(feedback_data)
 
 
 class PerguntasView(APIView):
     def post(self, request):
+        correlacao = _correlacao(request)
         serializer = PerguntasRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         paginas = [PaginaTexto(**p) for p in serializer.validated_data["paginas"]]
@@ -218,7 +465,8 @@ class PerguntasView(APIView):
                     material, serializer.validated_data["quantidade"]
                 ),
                 PerguntasResponse,
+                correlacao,
             )
         except gemini.GeminiErro as exc:
-            return _erro_gemini(exc)
+            return _erro_gemini(exc, correlacao)
         return Response(resultado.model_dump())

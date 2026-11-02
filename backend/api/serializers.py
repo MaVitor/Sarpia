@@ -27,21 +27,19 @@ class PaginaTextoSerializer(serializers.Serializer):
 class TopicosRequestSerializer(serializers.Serializer):
     paginas = PaginaTextoSerializer(many=True)
     modo = serializers.ChoiceField(choices=["pdf", "roteiro"], default="pdf")
+    titulo = serializers.CharField(max_length=255, required=False, default="Apresentação")
 
     def validate_paginas(self, value):
         return _validar_paginas(value)
 
 
 class AvaliacaoRequestSerializer(serializers.Serializer):
-    paginas = PaginaTextoSerializer(many=True)
+    presentation_id = serializers.UUIDField(required=False)
+    paginas = PaginaTextoSerializer(many=True, required=False)
     ensaio = serializers.CharField(min_length=20, max_length=30000)
-    modo = serializers.ChoiceField(choices=["pdf", "roteiro"], default="pdf")
-    referencia = serializers.DictField(
-        required=True,
-        error_messages={
-            "required": "Prepare os tópicos do material antes de avaliar o ensaio."
-        },
-    )
+    modo = serializers.ChoiceField(choices=["pdf", "roteiro"], required=False)
+    referencia = serializers.DictField(required=False)
+    idempotency_key = serializers.CharField(max_length=128, required=False)
 
     def validate_ensaio(self, value):
         if not value.strip():
@@ -54,6 +52,15 @@ class AvaliacaoRequestSerializer(serializers.Serializer):
 
     def validate_paginas(self, value):
         return _validar_paginas(value)
+
+    def validate(self, attrs):
+        if not attrs.get("presentation_id") and (
+            not attrs.get("paginas") or not attrs.get("modo") or not attrs.get("referencia")
+        ):
+            raise serializers.ValidationError(
+                "Informe a apresentação ou prepare os tópicos antes de avaliar."
+            )
+        return attrs
 
 
 class PerguntasRequestSerializer(serializers.Serializer):

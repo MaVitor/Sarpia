@@ -16,9 +16,9 @@ const publicos: { icone: LucideIcon; titulo: string; descricao: string }[] = [
   { icone: Award, titulo: "Concursos", descricao: "Ensaie apresentações orais com base no material exigido." },
 ];
 
-export default function LandingPage({ onStart }: { onStart: () => void }) {
+export default function LandingPage({ onStart, onAuth, onHistory, onLogo, usuario }: { onStart: () => void; onAuth: () => void; onHistory: () => void; onLogo: () => void; usuario: import("../lib/api").AuthUser | null }) {
   return <div className="shell">
-    <SiteHeader />
+    <SiteHeader usuario={usuario} onAuth={onAuth} onHistory={onHistory} onLogo={usuario ? onLogo : undefined} landing />
     <main className="container">
       <div className="intro-stage"><div className="intro-copy">
         <p className="eyebrow">Simulador de Apresentação Revisado por IA</p>
@@ -29,7 +29,7 @@ export default function LandingPage({ onStart }: { onStart: () => void }) {
       <section id="como-funciona"><h2>Como funciona</h2><div className="grid-steps">{passos.map(({ icone: Icone, num, titulo, descricao }) => <article className="card" key={num}><div className="card-head"><Icone className="icon" aria-hidden /><span className="step-num">{num}</span></div><h3>{titulo}</h3><p className="desc">{descricao}</p></article>)}</div></section>
       <section id="exemplo"><h2>Exemplo de feedback</h2><p className="section-sub">Veja como o Sarpia marca o seu ensaio como um professor com caneta vermelha.</p><div className="grid-example"><div className="card"><p className="mono-label">cobertura do material</p><p className="big-number">58%</p><div className="bar"><div style={{ width: "58%" }} /></div><p className="note">O Sarpia cruza o que você escreveu com os tópicos dos slides e mostra o que ficou de fora.</p></div><div className="stack"><article className="card card-sm"><p className="slide-num">slide 04</p><p className="quote"><span className="mark-slide">PUT substitui o recurso inteiro; PATCH atualiza parcialmente.</span></p><p className="said">Você mencionou apenas GET e POST.</p><p className="correction"><PenLine aria-hidden /><span>Inclua a diferença entre PUT e PATCH — a banca costuma cobrar esse detalhe.</span></p></article><article className="card card-sm"><p className="question-text">Qual a diferença entre PUT e PATCH na prática?</p><p className="question-hint">dica: idempotência e atualização parcial</p></article></div></div></section>
       <section id="para-quem"><h2>Para quem</h2><div className="grid-audiences">{publicos.map(({ icone: Icone, titulo, descricao }) => <article className="card card-sm audience-card" key={titulo}><Icone className="icon" aria-hidden /><div><h3>{titulo}</h3><p>{descricao}</p></div></article>)}</div></section>
-      <section className="final-cta"><h2>Pronto para ensaiar?</h2><p>Nada fica salvo: seu material vive só nesta sessão.</p><div className="cta"><button className="btn" type="button" onClick={onStart}>Começar agora</button></div></section>
+      <section className="final-cta"><h2>Pronto para ensaiar?</h2><p>Salve suas apresentações e consulte seus feedbacks quando precisar.</p><div className="cta"><button className="btn" type="button" onClick={onStart}>Começar agora</button></div></section>
     </main><SiteFooter />
   </div>;
 }
