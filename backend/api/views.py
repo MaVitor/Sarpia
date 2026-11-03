@@ -112,6 +112,7 @@ def _apresentacao_resumo(apresentacao: Presentation) -> dict:
         "id": str(apresentacao.id),
         "titulo": apresentacao.title,
         "modo": apresentacao.mode,
+        "contexto": apresentacao.context,
         "referencia_versao": apresentacao.reference_version,
         "criada_em": apresentacao.created_at,
         "atualizada_em": apresentacao.updated_at,
@@ -313,6 +314,8 @@ class TopicosView(APIView):
                 paginas_dict,
                 resultado.topicos,
                 getattr(resultado, "topicos_complementares", []),
+                getattr(resultado, "pessoas_material", []),
+                serializer.validated_data["contexto"],
             )
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=502)
@@ -320,6 +323,7 @@ class TopicosView(APIView):
             owner=request.user,
             title=serializer.validated_data["titulo"],
             mode=serializer.validated_data["modo"],
+            context=serializer.validated_data["contexto"],
             pages=paginas_dict,
             reference=referencia.model_dump(),
             reference_version=referencia.versao_contrato,
@@ -342,11 +346,13 @@ class AvaliarView(APIView):
             )
             paginas_dict = apresentacao.pages
             modo = apresentacao.mode
+            contexto = apresentacao.context
             referencia_dados = apresentacao.reference
         else:
             paginas_dict = serializer.validated_data["paginas"]
             modo = serializer.validated_data["modo"]
             referencia_dados = serializer.validated_data["referencia"]
+            contexto = serializer.validated_data["contexto"]
         idempotency_key = None
         if apresentacao is not None:
             idempotency_key = (
@@ -371,6 +377,11 @@ class AvaliarView(APIView):
             )
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=400)
+        if referencia.contexto != contexto:
+            return Response(
+                {"detail": "O contexto não corresponde à referência do material."},
+                status=400,
+            )
         paginas = [PaginaTexto(**p) for p in paginas_dict]
         material = prompts.formatar_material(paginas)
         try:
@@ -427,6 +438,7 @@ class AvaliarView(APIView):
             ordem_apresentacao=resultado.ordem_apresentacao,
             perguntas_banca=resultado.perguntas_banca,
             proximo_passo=resultado.proximo_passo,
+            pessoas_material=referencia.pessoas_material,
         )
         feedback = publico.model_copy(
             update={"cobertura_percentual": _calcular_cobertura(publico)}
@@ -462,7 +474,9 @@ class PerguntasView(APIView):
         try:
             resultado = gemini.gerar_estruturado(
                 prompts.prompt_perguntas(
-                    material, serializer.validated_data["quantidade"]
+                    material,
+                    serializer.validated_data["quantidade"],
+                    serializer.validated_data["contexto"],
                 ),
                 PerguntasResponse,
                 correlacao,

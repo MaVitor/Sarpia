@@ -63,6 +63,24 @@ export interface Topico {
   resumo: string;
 }
 
+export type ContextoApresentacao = "geral" | "seminario" | "defesa" | "profissional" | "pitch";
+
+export const CONTEXTOS_APRESENTACAO: { value: ContextoApresentacao; label: string }[] = [
+  { value: "geral", label: "Geral" },
+  { value: "seminario", label: "Trabalho escolar ou seminário" },
+  { value: "defesa", label: "Defesa acadêmica" },
+  { value: "profissional", label: "Apresentação profissional" },
+  { value: "pitch", label: "Pitch ou proposta" },
+];
+
+export const ROTULOS_PERGUNTAS: Record<ContextoApresentacao, string> = {
+  geral: "Perguntas do público",
+  seminario: "Perguntas da turma e do professor",
+  defesa: "Perguntas da banca",
+  profissional: "Perguntas da audiência",
+  pitch: "Perguntas sobre a proposta",
+};
+
 export interface TopicoReferencia extends Topico {
   id: string;
   categoria: "principal" | "complementar";
@@ -76,6 +94,8 @@ export interface TopicosResponse {
   topicos_complementares: TopicoReferencia[];
   assinatura: string;
   presentation_id: string;
+  contexto?: ContextoApresentacao;
+  pessoas_material?: { nome: string; papel: string; slide: number; trecho: string }[];
 }
 
 export interface TopicoAvaliado {
@@ -111,6 +131,7 @@ export interface FeedbackResponse {
   ordem_apresentacao: { avaliacao: string; sugestao: string };
   perguntas_banca: string[];
   proximo_passo: string;
+  pessoas_material?: { nome: string; papel: string; slide: number; trecho: string }[];
 }
 
 export interface ReferenciaTopicos extends TopicosResponse {}
@@ -123,6 +144,7 @@ export interface PresentationSummary {
   criada_em: string;
   atualizada_em: string;
   quantidade_tentativas: number;
+  contexto?: ContextoApresentacao;
 }
 
 export interface HistoryAttempt {
@@ -193,12 +215,13 @@ export async function extrairTopicos(
   paginas: PaginaTexto[],
   modo: "pdf" | "roteiro",
   titulo: string,
+  contexto: ContextoApresentacao = "geral",
   signal?: AbortSignal
 ): Promise<TopicosResponse> {
   const r = await requisicao(`${API_URL}/api/topicos/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ paginas, modo, titulo }),
+    body: JSON.stringify({ paginas, modo, titulo, contexto }),
     signal,
   });
   if (!r.ok) await tratarErro(r);
@@ -211,6 +234,7 @@ export async function avaliarEnsaio(
   paginas: PaginaTexto[],
   referencia: ReferenciaTopicos,
   modo: "pdf" | "roteiro",
+  _contexto: ContextoApresentacao,
   idempotencyKey: string,
   signal?: AbortSignal
 ): Promise<FeedbackResponse> {
@@ -224,7 +248,7 @@ export async function avaliarEnsaio(
       presentation_id: presentationId,
       ensaio,
       idempotency_key: idempotencyKey,
-    } : { paginas, ensaio, referencia, modo }),
+    } : { paginas, ensaio, referencia, modo, contexto: _contexto }),
     signal,
   });
   if (!r.ok) await tratarErro(r);

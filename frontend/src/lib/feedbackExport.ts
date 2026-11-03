@@ -1,4 +1,4 @@
-import type { FeedbackResponse } from "./api";
+import { ROTULOS_PERGUNTAS, type ContextoApresentacao, type FeedbackResponse } from "./api";
 
 const EXPLICACAO_COBERTURA =
   "Proporção de tópicos identificados como cobertos ou parciais. " +
@@ -16,6 +16,7 @@ function avisoDivergencias(quantidade: number): string {
 
 export interface FeedbackExportMaterial {
   nome: string;
+  contexto?: ContextoApresentacao;
 }
 
 export interface FeedbackExport {
@@ -116,7 +117,7 @@ export function formatarFeedbackTexto(
     `Avaliação: ${feedback.ordem_apresentacao.avaliacao}`,
     `Sugestão: ${feedback.ordem_apresentacao.sugestao}`,
     "",
-    "Perguntas da banca",
+    ROTULOS_PERGUNTAS[material.contexto ?? "geral"],
     perguntas,
     "",
     "Próximo passo",
@@ -135,7 +136,7 @@ export function criarFeedbackExport(
   return {
     versao_formato: "1.0",
     exportado_em: exportadoEm.toISOString(),
-    material: { nome: material.nome || "Não informado" },
+    material: { nome: material.nome || "Não informado", contexto: material.contexto },
     feedback,
   };
 }

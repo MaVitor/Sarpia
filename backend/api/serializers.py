@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from django.conf import settings
+from api.contexto import CONTEXTOS
 
 
 def _validar_paginas(value):
@@ -28,6 +29,7 @@ class TopicosRequestSerializer(serializers.Serializer):
     paginas = PaginaTextoSerializer(many=True)
     modo = serializers.ChoiceField(choices=["pdf", "roteiro"], default="pdf")
     titulo = serializers.CharField(max_length=255, required=False, default="Apresentação")
+    contexto = serializers.ChoiceField(choices=CONTEXTOS, default="geral")
 
     def validate_paginas(self, value):
         return _validar_paginas(value)
@@ -40,6 +42,7 @@ class AvaliacaoRequestSerializer(serializers.Serializer):
     modo = serializers.ChoiceField(choices=["pdf", "roteiro"], required=False)
     referencia = serializers.DictField(required=False)
     idempotency_key = serializers.CharField(max_length=128, required=False)
+    contexto = serializers.ChoiceField(choices=CONTEXTOS, required=False, default="geral")
 
     def validate_ensaio(self, value):
         if not value.strip():
@@ -66,6 +69,7 @@ class AvaliacaoRequestSerializer(serializers.Serializer):
 class PerguntasRequestSerializer(serializers.Serializer):
     paginas = PaginaTextoSerializer(many=True)
     quantidade = serializers.IntegerField(default=3, min_value=1, max_value=10)
+    contexto = serializers.ChoiceField(choices=CONTEXTOS, default="geral")
 
     def validate_paginas(self, value):
         return _validar_paginas(value)

@@ -1,4 +1,4 @@
-import type { FeedbackResponse, TopicoAvaliado } from "../lib/api";
+import { ROTULOS_PERGUNTAS, type ContextoApresentacao, type FeedbackResponse, type TopicoAvaliado } from "../lib/api";
 import {
   baixarTexto,
   criarFeedbackExport,
@@ -6,10 +6,10 @@ import {
   nomeArquivoFeedback,
 } from "../lib/feedbackExport";
 
-interface Props { feedback: FeedbackResponse; materialNome: string; onReview: () => void; onChangeMaterial: () => void; onHome: () => void; }
+interface Props { feedback: FeedbackResponse; materialNome: string; contexto: ContextoApresentacao; onReview: () => void; onChangeMaterial: () => void; onHome: () => void; }
 const status: Record<string, string> = { coberto: "Coberto", parcial: "Parcial", omitido: "Omitido" };
 
-export default function FeedbackPage({ feedback, materialNome, onReview, onChangeMaterial, onHome }: Props) {
+export default function FeedbackPage({ feedback, materialNome, contexto, onReview, onChangeMaterial, onHome }: Props) {
   const principais = feedback.topicos;
   const complementares = feedback.topicos_complementares ?? [];
   const contagens = principais.reduce(
@@ -19,7 +19,7 @@ export default function FeedbackPage({ feedback, materialNome, onReview, onChang
   function exportarTexto() {
     const agora = new Date();
     baixarTexto(
-      formatarFeedbackTexto(feedback, { nome: materialNome }, agora),
+      formatarFeedbackTexto(feedback, { nome: materialNome, contexto }, agora),
       nomeArquivoFeedback("txt", agora),
       "text/plain"
     );
@@ -27,7 +27,7 @@ export default function FeedbackPage({ feedback, materialNome, onReview, onChang
   function exportarJson() {
     const agora = new Date();
     baixarTexto(
-      JSON.stringify(criarFeedbackExport(feedback, { nome: materialNome }, agora), null, 2),
+      JSON.stringify(criarFeedbackExport(feedback, { nome: materialNome, contexto }, agora), null, 2),
       nomeArquivoFeedback("json", agora),
       "application/json"
     );
@@ -40,10 +40,10 @@ export default function FeedbackPage({ feedback, materialNome, onReview, onChang
     {complementares.length > 0 && <section className="flow-card"><h2>Elementos complementares</h2><p className="section-note">Itens contextuais do material; não entram na cobertura dos tópicos principais.</p><div className="feedback-list">{complementares.map((t) => <TopicoCard key={`${t.slide}-${t.titulo}`} topico={t} materialNome={materialNome} />)}</div></section>}
     <section className="flow-card" id="divergencias-conteudo"><h2>Divergências de conteúdo</h2>{feedback.erros_conteudo.length ? <div className="feedback-list">{feedback.erros_conteudo.map((e, i) => <article key={`${e.slide}-${i}`}><h3>Página {e.slide}</h3><p>{e.descricao}</p>{e.trecho_material && <blockquote>“{e.trecho_material}”</blockquote>}<p><strong>Sugestão de revisão:</strong> {e.correcao}</p></article>)}</div> : <p className="empty-state">Nenhuma divergência de conteúdo apontada.</p>}</section>
     <section className="flow-card"><h2>Informações não sustentadas</h2>{feedback.info_nao_sustentada.length ? <div className="feedback-list">{feedback.info_nao_sustentada.map((i, index) => <article key={index}><blockquote>“{i.trecho_ensaio}”</blockquote><p>{i.observacao}</p></article>)}</div> : <p className="empty-state">Nenhuma informação sem base no material foi apontada.</p>}</section>
-    <div className="feedback-two-col"><section className="flow-card"><h2>Ordem da apresentação</h2><p>{feedback.ordem_apresentacao.avaliacao}</p><p><strong>Sugestão:</strong> {feedback.ordem_apresentacao.sugestao}</p></section><section className="flow-card"><h2>Perguntas da banca</h2>{feedback.perguntas_banca.length ? <ul>{feedback.perguntas_banca.map((p, i) => <li key={i}>{p}</li>)}</ul> : <p className="empty-state">Nenhuma pergunta foi retornada.</p>}</section></div>
+    <div className="feedback-two-col"><section className="flow-card"><h2>Ordem da apresentação</h2><p>{feedback.ordem_apresentacao.avaliacao}</p><p><strong>Sugestão:</strong> {feedback.ordem_apresentacao.sugestao}</p></section><section className="flow-card"><h2>{ROTULOS_PERGUNTAS[contexto]}</h2>{feedback.perguntas_banca.length ? <ul>{feedback.perguntas_banca.map((p, i) => <li key={i}>{p}</li>)}</ul> : <p className="empty-state">Nenhuma pergunta foi retornada.</p>}</section></div>
     <section className="flow-card next-step"><h2>Próximo passo</h2><p>{feedback.proximo_passo}</p></section>
     <div className="flow-card export-card"><h2>Exportar feedback</h2><p>Você também pode exportar este feedback, que permanece salvo na sua conta até a exclusão da apresentação.</p><div className="export-actions"><button className="btn secondary-btn" type="button" onClick={exportarTexto}>Baixar texto</button><button className="btn secondary-btn" type="button" onClick={exportarJson}>Baixar JSON</button><button className="btn secondary-btn" type="button" onClick={() => window.print()}>Imprimir / Salvar PDF</button></div></div>
-    <div className="flow-actions feedback-actions"><button className="btn" type="button" onClick={onReview}>Revisar ensaio</button><button className="text-button" type="button" onClick={onChangeMaterial}>Trocar material</button><button className="text-button" type="button" onClick={onHome}>Voltar ao início</button></div>
+    <div className="flow-actions feedback-actions"><button className="btn" type="button" onClick={onReview}>Revisar ensaio</button><button className="text-button" type="button" onClick={onChangeMaterial}>Trocar material</button><button className="text-button" type="button" onClick={onHome}>Minhas apresentações</button></div>
   </main>;
 }
 

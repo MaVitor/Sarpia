@@ -1,6 +1,7 @@
 """Templates de prompt do Sarpia."""
 
 from api.schemas import PaginaTexto, ReferenciaTopicos
+from api.contexto import DESCRICOES_CONTEXTOS, rotulo_perguntas
 
 REGRAS_FUNDAMENTACAO = """
 REGRAS OBRIGATÓRIAS:
@@ -55,6 +56,11 @@ MATERIAL (texto extraído por slide):
 Tarefa: liste os tópicos principais que o apresentador precisa explicar, cada um ancorado ao slide correspondente,
 e separe em "topicos_complementares" créditos, agradecimentos, referências puramente bibliográficas e declarações
 de ferramentas usadas na preparação. Preserve a ordem do material e não duplique itens entre as listas.
+Identifique separadamente, em "pessoas_material", nomes reconhecidos no material e associe cada um a
+um papel somente quando houver evidência explícita: autoria do trabalho/material, integrante de grupo,
+apresentador, orientador/professor ou autor de obra citada. Não trate autores de referências como
+integrantes ou apresentadores. Quando o papel não estiver claro, não inclua a pessoa. Pessoas e autoria
+são informações contextuais e não entram em "topicos" nem reduzem a cobertura dos tópicos principais.
 {REGRAS_FUNDAMENTACAO}
 {REGRAS_CATEGORIAS}"""
 
@@ -121,7 +127,12 @@ def prompt_avaliacao_referencia(
         f"slide={topico.slide} | resumo={topico.resumo}"
         for topico in referencia.topicos_complementares
     ) or "(nenhum tópico complementar)"
-    return f"""Você é um avaliador de ensaios. Avalie o ensaio contra a referência canônica abaixo.
+    pessoas = "\n".join(
+        f'- nome="{pessoa.nome}" | papel={pessoa.papel} | slide={pessoa.slide} | trecho={pessoa.trecho}'
+        for pessoa in referencia.pessoas_material
+    ) or "(nenhuma identificação contextual reconhecida)"
+    contexto = DESCRICOES_CONTEXTOS.get(referencia.contexto, DESCRICOES_CONTEXTOS["geral"])
+    return f"""Você é um avaliador de ensaios para {contexto}. Avalie o ensaio contra a referência canônica abaixo.
 
 MATERIAL DE REFERÊNCIA (slides):
 {material}
@@ -136,12 +147,17 @@ Tópicos principais:
 Tópicos complementares:
 {complementares}
 
+Identificações contextuais reconhecidas:
+{pessoas}
+
 Regras da resposta:
 - devolva exatamente um item para cada ID da referência, sem adicionar, remover,
   duplicar ou recategorizar tópicos;
 - use os IDs exatamente como fornecidos; não devolva título, categoria ou página
   nesses itens, pois esses metadados são controlados pelo sistema;
 - preserve a separação entre "topicos" e "topicos_complementares";
+- não trate a ausência de pessoas contextuais no ensaio como omissão de conteúdo ou falha conceitual;
+- não exija que o usuário recite autores de referências bibliográficas;
 - produza as demais seções do feedback normalmente;
 - "cobertura_percentual" será recalculado pelo backend e não deve ser tratado como nota.
 - quando houver uma afirmação correta e outra que a contradiz sobre o mesmo assunto,
@@ -175,8 +191,11 @@ viés surge exclusivamente antes ou depois de uma fase.
 """
 
 
-def prompt_perguntas(material: str, quantidade: int) -> str:
-    return f"""Gere {quantidade} perguntas que uma banca acadêmica, um cliente ou uma plateia exigente fariam sobre este material, misturando compreensão e aplicação.
+def prompt_perguntas(material: str, quantidade: int, contexto: str = "geral") -> str:
+    descricao = DESCRICOES_CONTEXTOS.get(contexto, DESCRICOES_CONTEXTOS["geral"])
+    rotulo = rotulo_perguntas(contexto)
+    return f"""Gere {quantidade} {rotulo.lower()} para {descricao}, misturando compreensão e aplicação.
+Não presuma investidores, banca, professor ou cliente quando isso não fizer parte do contexto selecionado.
 
 MATERIAL:
 {material}

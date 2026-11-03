@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { enviarMaterial, extrairTopicos, type MaterialResponse, type PaginaTexto, type ReferenciaTopicos } from "../lib/api";
+import { enviarMaterial, extrairTopicos, CONTEXTOS_APRESENTACAO, type ContextoApresentacao, type MaterialResponse, type PaginaTexto, type ReferenciaTopicos } from "../lib/api";
+import CrowCatchGame from "./CrowCatchGame";
 
 export const MAX_PAGINAS = 20;
 export const MAX_MATERIAL_CHARS = 50000;
@@ -14,9 +15,11 @@ interface Props {
   onReferencia: (referencia: ReferenciaTopicos | null) => void;
   onPresentation: (id: string) => void;
   onContinue: () => void;
+  contexto: ContextoApresentacao;
+  onContexto: (contexto: ContextoApresentacao) => void;
 }
 
-export default function MaterialPage({ paginas, referencia, onMaterial, onReferencia, onPresentation, onContinue }: Props) {
+export default function MaterialPage({ paginas, referencia, onMaterial, onReferencia, onPresentation, onContinue, contexto, onContexto }: Props) {
   const [modo, setModo] = useState<"pdf" | "roteiro">("pdf");
   const [arquivo, setArquivo] = useState("");
   const [roteiro, setRoteiro] = useState(paginas.length === 1 && paginas[0].numero === 1 ? paginas[0].texto : "");
@@ -58,7 +61,7 @@ export default function MaterialPage({ paginas, referencia, onMaterial, onRefere
     setErro(""); setCarregando("topicos");
     const timer = window.setTimeout(() => controlador.abort("timeout"), TOPICOS_TIMEOUT_MS);
     try {
-      const resultado = await extrairTopicos(paginas, modo, arquivo || "Roteiro", controlador.signal);
+      const resultado = await extrairTopicos(paginas, modo, arquivo || "Roteiro", contexto, controlador.signal);
       if (controlador !== requisicaoAtual.current) return;
       onReferencia(resultado);
       onPresentation(resultado.presentation_id);
@@ -80,10 +83,29 @@ export default function MaterialPage({ paginas, referencia, onMaterial, onRefere
   return <main className="flow-page flow-material" tabIndex={-1}>
     <p className="flow-kicker">Etapa 1 de 3</p><h1 className="flow-title" tabIndex={-1}>Escolha seu material</h1>
     <p className="flow-lede">O material, os ensaios e os feedbacks ficam salvos na sua conta para você retomar depois.</p>
+    <fieldset className="presentation-context">
+      <legend>Qual é o contexto da sua apresentação?</legend>
+      <p className="presentation-context-help">Isso ajuda a adaptar o feedback e as perguntas ao seu objetivo.</p>
+      <div className="context-options">
+        {CONTEXTOS_APRESENTACAO.map((item) => (
+          <label className={`context-option${contexto === item.value ? " is-selected" : ""}`} key={item.value}>
+            <input
+              type="radio"
+              name="contexto-apresentacao"
+              value={item.value}
+              checked={contexto === item.value}
+              onChange={() => onContexto(item.value)}
+            />
+            <span>{item.label}</span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
     <div className="material-options"><section className={`flow-card ${modo === "pdf" ? "is-selected" : ""}`}><h2>Enviar slides em PDF</h2><p>Até {MAX_PDF_MB} MB e {MAX_PAGINAS} páginas.</p><label className="file-button" htmlFor="material-pdf">{carregando === "upload" ? "Enviando..." : "Escolher PDF"}</label><input id="material-pdf" type="file" accept=".pdf,application/pdf" onChange={(e) => void selecionar(e.target.files?.[0])} disabled={carregando !== ""} /><p className="file-name">{arquivo || "Nenhum arquivo escolhido"}</p>{resposta && <><p>{resposta.total_paginas} páginas extraídas.</p>{resposta.aviso && <p className="flow-notice">{resposta.aviso}</p>}</>}</section>
       <section className={`flow-card ${modo === "roteiro" ? "is-selected" : ""}`}><h2>Colar um roteiro</h2><p>Até {MAX_MATERIAL_CHARS.toLocaleString("pt-BR")} caracteres.</p><label htmlFor="roteiro">Seu roteiro</label><textarea id="roteiro" value={roteiro} maxLength={MAX_MATERIAL_CHARS} onFocus={() => setModo("roteiro")} onChange={(e) => { setRoteiro(e.target.value); setResposta(null); onReferencia(null); setTopicosObtidos(false); }} rows={8} /><span className="char-count">{roteiro.length.toLocaleString("pt-BR")} / {MAX_MATERIAL_CHARS.toLocaleString("pt-BR")}</span><button className="btn secondary-btn" type="button" onClick={usarRoteiro}>Usar roteiro</button></section></div>
     {resposta && <section className="flow-card extracted-card"><h2>Texto extraído</h2><div className="page-list">{resposta.paginas.map((pagina) => <details key={pagina.numero}><summary>Página {pagina.numero}</summary><pre>{pagina.texto || "Nenhum texto extraído nesta página."}</pre></details>)}</div></section>}
     {materialPronto && <div className="flow-actions"><button className="btn" type="button" onClick={() => void identificar()} disabled={carregando !== ""}>{carregando === "topicos" ? "Identificando tópicos..." : "Identificar tópicos"}</button></div>}
+    {carregando === "topicos" && <><p className="flow-status" aria-live="polite">Identificando os tópicos do material...</p><CrowCatchGame analysisActive operation="topics" /></>}
     {topicosObtidos && referencia && <section className="flow-card"><h2>Tópicos identificados</h2>{referencia.topicos.length > 0 ? <ul className="topic-list">{referencia.topicos.map((t) => <li key={t.id}><strong>{t.titulo}</strong><span>{t.slide === 1 && paginas.length === 1 ? "Roteiro" : `Página ${t.slide}`}</span><p>{t.resumo}</p></li>)}</ul> : <p className="empty-state">A análise não retornou tópicos principais para este material.</p>}{referencia.topicos_complementares.length > 0 && <><h3>Elementos complementares</h3><ul className="topic-list">{referencia.topicos_complementares.map((t) => <li key={t.id}><strong>{t.titulo}</strong><span>{t.slide === 1 && paginas.length === 1 ? "Roteiro" : `Página ${t.slide}`}</span><p>{t.resumo}</p></li>)}</ul></>}<button className="btn" type="button" onClick={onContinue}>Continuar para o ensaio</button></section>}
     {mensagem && <p className="flow-status" aria-live="polite">{mensagem}</p>}{erro && <p className="flow-error" role="alert">{erro}</p>}
   </main>;

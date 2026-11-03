@@ -1,4 +1,5 @@
 import re
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
 import fitz
@@ -482,6 +483,50 @@ class GeminiViewTests(TestCase):
 
 
 class GeminiServiceTests(SimpleTestCase):
+    def setUp(self):
+        gemini._reset_credential_pool()
+
+    def test_pool_deduplica_e_faz_round_robin(self):
+        pool = gemini.CredentialPool("ficticia-a, ficticia-b, ficticia-a")
+        selecionadas = [pool.reserve().index for _ in range(4)]
+        self.assertEqual(selecionadas, [0, 1, 0, 1])
+
+    def test_pool_propaga_cooldown_de_quota_no_projeto_conhecido(self):
+        pool = gemini.CredentialPool(
+            "ficticia-a, ficticia-b, ficticia-c", "projeto-a, projeto-a, projeto-b"
+        )
+        primeira = pool.reserve()
+        pool.report(primeira, gemini.genai_errors.ServerError(
+            429, {"error": {"message": "limite temporário"}}
+        ))
+        self.assertEqual(pool.reserve().project, "projeto-b")
+        self.assertEqual(
+            [item["cooldown_until"] > 0 for item in pool.snapshot()],
+            [True, True, False],
+        )
+
+    def test_pool_concorrente_nao_reserva_a_mesma_posicao_em_paralelo(self):
+        pool = gemini.CredentialPool("ficticia-a, ficticia-b")
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            indices = list(executor.map(lambda _: pool.reserve().index, range(2)))
+        self.assertEqual(sorted(indices), [0, 1])
+
+    @override_settings(
+        GEMINI_API_KEYS="ficticia-a, ficticia-b",
+        GEMINI_MAX_TENTATIVAS=3,
+        GEMINI_ORCAMENTO_MS=1,
+    )
+    def test_orcamento_global_impede_tentativas_adicionais(self):
+        with patch(
+            "api.services.gemini.time.monotonic",
+            side_effect=[0.0, 0.002, 0.002, 0.002],
+        ):
+            with patch("api.services.gemini._chamar_gemini") as chamar:
+                with self.assertRaises(GeminiErro) as contexto:
+                    gemini.gerar_estruturado("prompt privado", FeedbackResponse)
+        self.assertEqual(contexto.exception.status, 504)
+        chamar.assert_not_called()
+
     def test_cliente_sdk_usa_uma_tentativa_de_rede(self):
         class Resultado(BaseModel):
             valor: int
@@ -614,6 +659,37 @@ class PromptTests(SimpleTestCase):
         self.assertIn("uma página pode ter tópicos principais", prompt.lower())
         self.assertIn("ferramenta como conteúdo principal", prompt.lower())
         self.assertIn("priorizar contradições e lacunas principais", prompt.lower())
+
+    def test_prompt_separa_papeis_de_autoria_e_referencias(self):
+        prompt = prompts.prompt_topicos(
+            "[Slide 1]\nAutoria: Ana Lima e Bruno Costa.\n"
+            "[Slide 2]\nReferência: Maria Silva (2020)."
+        )
+        prompt_lower = re.sub(r"\s+", " ", prompt.lower())
+        self.assertIn("pessoas_material", prompt)
+        self.assertIn("autoria do trabalho/material", prompt_lower)
+        self.assertIn("autor de obra citada", prompt_lower)
+        self.assertIn("não trate autores de referências como integrantes", prompt_lower)
+        self.assertIn("não entram em", prompt_lower)
+
+    def test_prompt_perguntas_respeita_contexto_selecionado(self):
+        prompt = prompts.prompt_perguntas(
+            "[Slide 1]\nA apresentação explica o produto.",
+            3,
+            "profissional",
+        )
+        self.assertIn("perguntas da audiência", prompt.lower())
+        self.assertIn("apresentação profissional", prompt.lower())
+        self.assertNotIn("investidores", prompt.lower().split("não presuma", 1)[0])
+
+    def test_referencia_antiga_usa_contexto_geral_por_padrao(self):
+        referencia = criar_referencia(
+            "pdf",
+            [{"numero": 1, "texto": "Conteúdo"}],
+            [Topico(titulo="Conteúdo", slide=1, resumo="Resumo")],
+        )
+        self.assertEqual(referencia.contexto, "geral")
+        self.assertEqual(referencia.pessoas_material, [])
 
     def test_prompt_estavel_orienta_contradicao_e_correcao_acionavel(self):
         referencia = criar_referencia(

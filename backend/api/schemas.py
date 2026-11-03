@@ -20,6 +20,13 @@ class Topico(BaseModel):
     resumo: str
 
 
+class PapelMaterial(BaseModel):
+    nome: str
+    papel: str
+    slide: int
+    trecho: str
+
+
 class TopicoReferencia(BaseModel):
     id: str
     titulo: str
@@ -34,12 +41,15 @@ class ReferenciaTopicos(BaseModel):
     material_hash: str
     topicos: list[TopicoReferencia]
     topicos_complementares: list[TopicoReferencia] = Field(default_factory=list)
+    pessoas_material: list[PapelMaterial] = Field(default_factory=list)
+    contexto: Literal["geral", "seminario", "defesa", "profissional", "pitch"] = "geral"
     assinatura: str
 
 
 class TopicosResponse(BaseModel):
     topicos: list[Topico]
     topicos_complementares: list[Topico] = Field(default_factory=list)
+    pessoas_material: list[PapelMaterial] = Field(default_factory=list)
 
 
 class TopicoAvaliado(BaseModel):
@@ -80,6 +90,7 @@ class FeedbackResponse(BaseModel):
     ordem_apresentacao: OrdemApresentacao
     perguntas_banca: list[str]
     proximo_passo: str
+    pessoas_material: list[PapelMaterial] = Field(default_factory=list)
 
 
 class PerguntasResponse(BaseModel):

@@ -6,6 +6,13 @@ from django.db import models
 
 class Presentation(models.Model):
     MODE_CHOICES = [("pdf", "PDF"), ("roteiro", "Roteiro")]
+    CONTEXT_CHOICES = [
+        ("geral", "Geral"),
+        ("seminario", "Trabalho escolar ou seminário"),
+        ("defesa", "Defesa acadêmica"),
+        ("profissional", "Apresentação profissional"),
+        ("pitch", "Pitch ou proposta"),
+    ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     owner = models.ForeignKey(
@@ -15,6 +22,9 @@ class Presentation(models.Model):
     )
     title = models.CharField(max_length=255)
     mode = models.CharField(max_length=10, choices=MODE_CHOICES)
+    context = models.CharField(
+        max_length=16, choices=CONTEXT_CHOICES, default="geral"
+    )
     pages = models.JSONField()
     reference = models.JSONField()
     reference_version = models.CharField(max_length=32)

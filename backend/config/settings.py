@@ -170,3 +170,5 @@ MAX_CARACTERES_ENSAIO = int(os.getenv("MAX_CARACTERES_ENSAIO", "30000"))
 # google-genai 2.x recebe timeout em milissegundos; o valor cobre uma chamada.
 GEMINI_TIMEOUT_MS = int(os.getenv("GEMINI_TIMEOUT_MS", "30000"))
 GEMINI_MAX_TENTATIVAS = int(os.getenv("GEMINI_MAX_TENTATIVAS", "2"))
+GEMINI_ORCAMENTO_MS = int(os.getenv("GEMINI_ORCAMENTO_MS", "65000"))
+GEMINI_KEY_PROJECTS = os.getenv("GEMINI_KEY_PROJECTS", "")

@@ -5,6 +5,7 @@ from typing import Any
 from django.core import signing
 
 from api.schemas import (
+    PapelMaterial,
     ReferenciaTopicos,
     TopicoReferencia,
     Topico,
@@ -33,6 +34,8 @@ def criar_referencia(
     paginas: list[dict[str, Any]],
     topicos: list[Topico],
     topicos_complementares: list[Topico] | None = None,
+    pessoas_material: list[PapelMaterial] | None = None,
+    contexto: str = "geral",
 ) -> ReferenciaTopicos:
     numeros = {pagina["numero"] for pagina in paginas}
     todos = list(topicos) + list(topicos_complementares or [])
@@ -67,6 +70,10 @@ def criar_referencia(
         "topicos_complementares": [
             topico.model_dump() for topico in complementares
         ],
+        "pessoas_material": [
+            pessoa.model_dump() for pessoa in pessoas_material or []
+        ],
+        "contexto": contexto,
     }
     return ReferenciaTopicos(
         **dados,
